@@ -1317,14 +1317,15 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
 float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, clock_t* tiempoReconsParteImag_MejorCompresion, clock_t* tiempoReconsParteReal_MejorCompresion, clock_t* tiempoTransInver_MejorCompresion)
 {
   float cotaMinPSNR = 0.75;
-  float cotaMinCompresion = 0.2;
-  // float limiteInferior = 0.3;
-  // float limiteSuperior = 0.8;
+  float cotaMinCompresion = 0.2 * finIntervalo;
   float* datosDelMin = (float*) malloc(sizeof(float)*4);
   long cantCoefsMejorCompre = 0;
   char nombreArchivoTXTCompre[] = "compresiones.txt";
   char nombreArchivoDatosMinPSNR[] = "mejorTradeOffPSNRCompre.txt";
   char nombreArchivoCompreImg[] = "compreImg";
+  char nombreDatosDeIte[] = "datosDeIte.txt";
+  char nombreDatosDeIteLegible[] = "datosDeIteLegible.txt";
+  char nombreCurvaPSNRSuavizada[] = "curvaPSNRSuavizada.txt";
 
 
   float* paramEvaInfo = linspace(inicioIntervalo/100.0, finIntervalo/100.0, cantParamEvaInfo);
@@ -1371,7 +1372,14 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   strcpy(nombreArchivoCompresiones, rutaADirecSec);
   strcat(nombreArchivoCompresiones, "/");
   strcat(nombreArchivoCompresiones, nombreArchivoTXTCompre);
-  FILE* archivoPSNR = fopen(nombreArchivoCompresiones, "a");
+  char* nombreArchivoDatosDeIte = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIte)+sizeof(char)*4);
+  strcpy(nombreArchivoDatosDeIte, rutaADirecSec);
+  strcat(nombreArchivoDatosDeIte, "/");
+  strcat(nombreArchivoDatosDeIte, nombreDatosDeIte);
+  char* nombreArchivoDatosDeIteLegible = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIteLegible)+sizeof(char)*4);
+  strcpy(nombreArchivoDatosDeIteLegible, rutaADirecSec);
+  strcat(nombreArchivoDatosDeIteLegible, "/");
+  strcat(nombreArchivoDatosDeIteLegible, nombreDatosDeIteLegible);
   float* vectorDePSNR = (float*) calloc(cantParamEvaInfo, sizeof(float));
   float* porcenReal = (float*) calloc(cantParamEvaInfo, sizeof(float));
   float* porcenIdeal = (float*) calloc(cantParamEvaInfo, sizeof(float));
@@ -1397,6 +1405,12 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
       else
       {
         iExterno = i;
+        FILE* archivoDatosDeIte = fopen(nombreArchivoDatosDeIte, "a");
+        fprintf(archivoDatosDeIte, "%f %f %ld %f\n", paramEvaInfo[cantParamEvaInfo-1-j], cantidadPorcentualDeCoefs[i], cantCoefsParaCota, sumador);
+        fclose(archivoDatosDeIte);
+        FILE* archivoDatosDeIteLegible = fopen(nombreArchivoDatosDeIteLegible, "a");
+        fprintf(archivoDatosDeIteLegible, "Del %f%% solicitado, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia.\n", paramEvaInfo[cantParamEvaInfo-1-j] * 100, cantidadPorcentualDeCoefs[i] * 100, cantCoefsParaCota, sumador * 100);
+        fclose(archivoDatosDeIteLegible);
         printf("Del %f%% solicitado, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia.\n", paramEvaInfo[cantParamEvaInfo-1-j] * 100, cantidadPorcentualDeCoefs[i] * 100, cantCoefsParaCota, sumador * 100);
         break;
       }
@@ -1445,15 +1459,15 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
       porcenReal[j] = 1-cantidadPorcentualDeCoefs[iExterno];
       cantCoefsUsadas[j] = cantCoefsParaCota;
       vectorDePorcenEnergia[j] = sumador;
+      FILE* archivoPSNR = fopen(nombreArchivoCompresiones, "a");
       fprintf(archivoPSNR, "%f %f %f\n", 1-cantidadPorcentualDeCoefs[iExterno], 1-paramEvaInfo[cantParamEvaInfo-1-j], PSNRActual);
+      fclose(archivoPSNR);
       cudaFree(estimacionFourier_compre_ParteImag);
       cudaFree(estimacionFourier_compre_ParteReal);
       free(numComoString);
       free(nombreArchivoReconsImgComp);
     }
   }
-  fclose(archivoPSNR);
-
   float* vectorDePSNRFiltrado = (float*) calloc(cantParamEvaInfo, sizeof(float));
   gsl_vector* vectorDePSNREnGSL = gsl_vector_alloc(cantParamEvaInfo);
   gsl_vector* vectorDePSNREnGSLFiltrado = gsl_vector_alloc(cantParamEvaInfo);
@@ -1471,72 +1485,17 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   gsl_vector_free(vectorDePSNREnGSLFiltrado);
   gsl_filter_gaussian_free(gauss_p);
 
-
-  // float* listaDeMetricas = (float*) malloc(sizeof(float)*cantParamEvaInfo);
-  // float* primeraRecta_subListaDeX = (float*) calloc(cantParamEvaInfo, sizeof(float));
-  // float* primeraRecta_subListaDeY = (float*) calloc(cantParamEvaInfo, sizeof(float));
-  // float* segundaRecta_subListaDeX = (float*) calloc(cantParamEvaInfo, sizeof(float));
-  // float* segundaRecta_subListaDeY = (float*) calloc(cantParamEvaInfo, sizeof(float));
-  // memcpy(segundaRecta_subListaDeX, porcenReal, sizeof(float)*cantParamEvaInfo);
-  // memcpy(segundaRecta_subListaDeY, vectorDePSNRFiltrado, sizeof(float)*cantParamEvaInfo);
-  // primeraRecta_subListaDeX[0] = porcenReal[0];
-  // primeraRecta_subListaDeY[0] = vectorDePSNRFiltrado[0];
-  // float metricaMin;
-  // float metricaActual;
-  // int flagPrimerValorParaMetricaMin = 0;
-  // printf("7\n");
-  // for(int i=1; i<cantParamEvaInfo-1; i++)
-  // {
-  //     primeraRecta_subListaDeX[i] = porcenReal[i];
-  //     primeraRecta_subListaDeY[i] = vectorDePSNRFiltrado[i];
-  //     float pendienteDePrimeraRecta = calPendiente(primeraRecta_subListaDeX, i+1, primeraRecta_subListaDeY);
-  //     segundaRecta_subListaDeX[i-1] = 0.0;
-  //     segundaRecta_subListaDeY[i-1] = 0.0;
-  //     float pendienteDeSegundaRecta = calPendiente(&(segundaRecta_subListaDeX[i]), cantParamEvaInfo-i, &(segundaRecta_subListaDeY[i]));
-  //     metricaActual = -1.0 * pendienteDeSegundaRecta/pendienteDePrimeraRecta;
-  //     listaDeMetricas[i] = metricaActual;
-  //     if(limiteInferior <= porcenReal[i] && porcenReal[i] <= limiteSuperior)
-  //     {
-  //       if(flagPrimerValorParaMetricaMin == 0)
-  //       {
-  //         metricaMin = metricaActual;
-  //         datosDelMin[0] = porcenIdeal[i];
-  //         datosDelMin[1] = porcenReal[i];
-  //         cantCoefsMejorCompre = cantCoefsUsadas[i];
-  //         datosDelMin[2] = vectorDePorcenEnergia[i];
-  //         datosDelMin[3] = vectorDePSNR[i];
-  //         flagPrimerValorParaMetricaMin = 1;
-  //       }
-  //       if(metricaActual < metricaMin)
-  //       {
-  //         metricaMin = metricaActual;
-  //         datosDelMin[0] = porcenIdeal[i];
-  //         datosDelMin[1] = porcenReal[i];
-  //         cantCoefsMejorCompre = cantCoefsUsadas[i];
-  //         datosDelMin[2] = vectorDePorcenEnergia[i];
-  //         datosDelMin[3] = vectorDePSNR[i];
-  //       }
-  //     }
-  // }
-
-  FILE* archivoRandom = fopen("wea.txt", "w");
+  char* nombreArchivoCurvaPSNRSuavizada = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreCurvaPSNRSuavizada)+sizeof(char)*4);
+  strcpy(nombreArchivoCurvaPSNRSuavizada, rutaADirecSec);
+  strcat(nombreArchivoCurvaPSNRSuavizada, "/");
+  strcat(nombreArchivoCurvaPSNRSuavizada, nombreCurvaPSNRSuavizada);
+  FILE* archivoCurvaPSNRSuavizada = fopen(nombreArchivoCurvaPSNRSuavizada, "a");
   for(int i=0; i<cantParamEvaInfo; i++)
   {
-      fprintf(archivoRandom, "%f\n", vectorDePSNRFiltrado[i]);
+      fprintf(archivoCurvaPSNRSuavizada, "%f\n", vectorDePSNRFiltrado[i]);
   }
-  fclose(archivoRandom);
-
-  // free(vectorDePSNRFiltrado);
-  // free(primeraRecta_subListaDeX);
-  // free(primeraRecta_subListaDeY);
-  // free(segundaRecta_subListaDeX);
-  // free(segundaRecta_subListaDeY);
-  // free(porcenIdeal);
-  // free(porcenReal);
-  // free(cantCoefsUsadas);
-  // free(vectorDePorcenEnergia);
-  // free(vectorDePSNR);
-
+  fclose(archivoCurvaPSNRSuavizada);
+  free(nombreArchivoCurvaPSNRSuavizada);
 
   for(int j=0; j<cantParamEvaInfo; j++)
   {
@@ -1552,7 +1511,7 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
           flag_inicioDeVentana = 0;
         }
         vectorDeDifePSNREntrePtosAdya[cantPtsVentana] = vectorDePSNRFiltrado[j] - vectorDePSNRFiltrado[j-1];
-        // printf("%.12e\n", vectorDeDifePSNREntrePtosAdya[cantPtsVentana]);
+        printf("%.12e\n", vectorDeDifePSNREntrePtosAdya[cantPtsVentana]);
         cantPtsVentana++;
       }
     }
@@ -1569,8 +1528,8 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   int* vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU = (int*) malloc(sizeof(int)*cantPtsVentana);
   cudaMemcpy(vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU, auxiliar_vectorDeDifePSNREntrePtosAdya_indicesOrde_GPU, cantPtsVentana*sizeof(int), cudaMemcpyDeviceToHost);
   vectorDeDifePSNREntrePtosAdya_indicesOrde_GPU.unlock();
-  // int indiceElegido = vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU[0] + inicioDeVentana - 1;
-  printf("El indice elegido es %d\n", indiceElegido);
+  int indiceElegido = vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU[0] + inicioDeVentana - 1;
+  // printf("El indice elegido es %d\n", indiceElegido);
   free(vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU);
   datosDelMin[0] = porcenIdeal[indiceElegido];
   datosDelMin[1] = porcenReal[indiceElegido];
@@ -1590,7 +1549,7 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   strcat(nombreArchivoMejorCompre, "/");
   strcat(nombreArchivoMejorCompre, nombreArchivoDatosMinPSNR);
   FILE* archivoMejorCompre = fopen(nombreArchivoMejorCompre, "w");
-  fprintf(archivoMejorCompre, "El tradeoff seleccionado corresponde al %f%% de coefs, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia y un PSNR de %f%%.\n", datosDelMin[0]  * 100, datosDelMin[1]  * 100, cantCoefsMejorCompre, datosDelMin[2]  * 100, datosDelMin[3]);
+  fprintf(archivoMejorCompre, "El tradeoff seleccionado con indice %d corresponde al %f%% de coefs, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia y un PSNR de %f.\n", indiceElegido, (1-datosDelMin[0])  * 100, (1-datosDelMin[1])  * 100, cantCoefsMejorCompre, datosDelMin[2]  * 100, datosDelMin[3]);
   free(nombreArchivoMejorCompre);
   free(datosDelMin);
   fclose(archivoMejorCompre);
@@ -1641,6 +1600,8 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   free(coefsNormalizados);
   free(MC_modulo_indicesOrde_CPU);
   free(nombreArchivoCompresiones);
+  free(nombreArchivoDatosDeIte);
+  free(nombreArchivoDatosDeIteLegible);
   return cantCoefsMejorCompre;
 }
 
@@ -1804,7 +1765,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
   FILE* archivo = fopen(nombreArchivoInfoComp, "a");
   float nivelDeCompresion = 1.0 - cantCoefs * 1.0 / N*N;
-  fprintf(archivo, "%d %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, cantCoefs);
+  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, cantCoefs);
   fclose(archivo);
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
@@ -2209,10 +2170,6 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
       printf("PROGRAMA ABORTADO.\n");
       exit(0);
   }
-  int cotaEnergiaInt = cotaEnergia * 100;
-  char* cotaEnergiaString = numAString(&cotaEnergiaInt);
-  sprintf(cotaEnergiaString, "%d", cotaEnergiaInt);
-  // strcat(nombreDirPrin, cotaEnergiaString);
   if(mkdir(nombreDirPrin, 0777) == -1)
   {
       printf("ERROR: El directorio EXISTE, PELIGRO DE SOBREESCRITURA, por favor eliga otro nombre de directorio.\n");
@@ -2232,9 +2189,9 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
   // printf("El optimo esta en %.12f\n", optimo);
 
   float* paramEvaInfo = linspace(inicioIntervaloEscalado, finIntervaloEscalado, cantParamEvaInfo);
-  int i = 0;
-  // for(int i=0; i<cantParamEvaInfo; i++)
-  // {
+  // int i = 0;
+  for(int i=0; i<cantParamEvaInfo; i++)
+  {
     char* numComoString = numAString(&i);
     sprintf(numComoString, "%d", i);
     char* nombreDirSecCopia = (char*) malloc(sizeof(char)*strlen(nombreDirSec)*strlen(numComoString));
@@ -2243,7 +2200,7 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
     calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde);
     free(numComoString);
     free(nombreDirSecCopia);
-  // }
+  }
 }
 
 void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char nombreDirPrin[], float ancho, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde)
@@ -2571,45 +2528,13 @@ int main()
     matrizDeUnosEstFourier[i] = 1.0;
   }
 
-  // float* rango = linspace(1.0 * delta_u, 5.0 * delta_u, 100);
-  // for(int i=0; i<100; i++)
-  // {
-  //   float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, rango[i], matrizDeUnos);
-  //   float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, rango[i], matrizDeUnos);
-  //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w);
-  //   cudaFree(MU);
-  //   cudaFree(MV);
-  //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
-  //   free(medidasDeInfo);
-  //   float info = -1 * medidaSumaDeLaDiagonal;
-  //   printf("%.12e\n", info);
-  // }
-
-
-  // goldenMin(u, v, w, delta_u, delta_v, matrizDeUnos, cantVisi, N, estrechezDeBorde);
-  //
-  // // filtroGaussiano();
-  // exit(-1);
-
-
-  // // double ancho = delta_u;
-  // //
-  // // // float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, ancho);
-  // // float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos);
-  // // // float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, ancho);
-  // // float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos);
-  // // float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w);
-  // // float medidaSumaDeLaDiagonal = medidasDeInfo[0];
-  // // printf("%.12e\n", medidaSumaDeLaDiagonal);
-
-
   float cotaEnergia = 0.99;
   // char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
-  char nombreDirPrin[] = "experi_hd142_solo80";
+  char nombreDirPrin[] = "experi_hd142_visi800";
   char nombreDirSec[] = "ite";
   char nombreDirTer[] = "compresiones";
   char nombreArchivoTiempo[] = "tiempo.txt";
-  int cantParamEvaInfo = 80;
+  int cantParamEvaInfo = 800;
   // float inicioIntervalo = 0.8;
   float inicioIntervalo = 1.0;
   float finIntervalo = 3.0;
