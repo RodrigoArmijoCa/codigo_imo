@@ -219,29 +219,29 @@ float** transformarMatrizColumnaAMatriz(float* matrizColumna, int cantFilas, int
   return matriz;
 }
 
-void multMatrices(float* a, long m, long k, float* b, long n, float* c)
-{
-  cublasHandle_t handle;
-  cublasCreate(&handle);
-  float al = 1.0f;
-  float bet = 0.0f;
-  cublasSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
-  cudaDeviceSynchronize();
-  for(long i=0; i<m*n;i++)
-  {
-    if(isnan(c[i]))
-    {
-      printf("Valor nan encontrado en multMatrices.\n");
-      break;
-    }
-  }
-  cublasDestroy(handle);
-}
+// void multMatrices(float* a, long m, long k, float* b, long n, float* c)
+// {
+//   cublasHandle_t handle;
+//   cublasCreate(&handle);
+//   float al = 1.0f;
+//   float bet = 0.0f;
+//   cublasSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
+//   cudaDeviceSynchronize();
+//   for(long i=0; i<m*n;i++)
+//   {
+//     if(isnan(c[i]))
+//     {
+//       printf("Valor nan encontrado en multMatrices.\n");
+//       break;
+//     }
+//   }
+//   cublasDestroy(handle);
+// }
 
 __global__ void matrixMultiply(float * A, float * B, float * C,
-  		       int numARows, int numAColumns,
-			       int numBRows, int numBColumns,
-			       int numCRows, int numCColumns) {
+  		       long numARows, long numAColumns,
+			       long numBRows, long numBColumns,
+			       long numCRows, long numCColumns) {
     //@@ Insert code to implement matrix multiplication here
     __shared__ float ds_M[TILE_WIDTH][TILE_WIDTH];
     __shared__ float ds_N[TILE_WIDTH][TILE_WIDTH];
@@ -270,11 +270,13 @@ __global__ void matrixMultiply(float * A, float * B, float * C,
        C[Row*numCColumns+Col] = Pvalue;
 }
 
-// void multMatrices(float* a, long m, long k, float* b, long n, float* c)
-// {
-//   dim3 dimGrid((numCColumns-1)/TILE_WIDTH+1, (numCRows-1)/TILE_WIDTH+1, 1);
-//   dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
-// }
+void multMatrices(float* a, long m, long k, float* b, long n, float* c)
+{
+  dim3 dimGrid((n-1)/TILE_WIDTH+1, (m-1)/TILE_WIDTH+1, 1);
+  dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
+  matrixMultiply<<< dimGrid, dimBlock >>>(a, b, c, m, k, k, n, m, n);
+  cudaDeviceSynchronize();
+}
 
 // void multMatrices(float* a, long m, long k, float* b, long n, float* c)
 // {
@@ -414,11 +416,19 @@ __global__ void transponerMatriz_kernel(float* idata, float* odata, long width, 
 
 void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado)
 {
-  dim3 grid(cantFilasMatrizA / BLOCK_DIM, cantColumnasMatrizA / BLOCK_DIM, 1);
+  dim3 grid(cantColumnasMatrizA/BLOCK_DIM,  cantFilasMatrizA/BLOCK_DIM, 1);
   dim3 threads(BLOCK_DIM, BLOCK_DIM, 1);
-  transponerMatriz_kernel<<< grid, threads >>>(matrizA, resultado, cantFilasMatrizA, cantColumnasMatrizA);
+  transponerMatriz_kernel<<<grid,threads>>>(matrizA, resultado, cantColumnasMatrizA, cantFilasMatrizA);
   cudaDeviceSynchronize();
 }
+
+// void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado)
+// {
+//   dim3 grid(cantFilasMatrizA / BLOCK_DIM, cantColumnasMatrizA / BLOCK_DIM, 1);
+//   dim3 threads(BLOCK_DIM, BLOCK_DIM, 1);
+//   transponerMatriz_kernel<<< grid, threads >>>(matrizA, resultado, cantFilasMatrizA, cantColumnasMatrizA);
+//   cudaDeviceSynchronize();
+// }
 
 __global__ void restaVectorColumnaConVector_kernel(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, float* resultado)
 {
@@ -2456,8 +2466,8 @@ void filtroGaussiano()
 int main()
 {
 
-  // long cantFilas = 5000000;
-  // long cantColumnas = 1600;
+  // long cantFilas = 10;
+  // long cantColumnas = 10;
   // float* matrizA, *resultado1;
   // cudaMallocManaged(&matrizA, cantFilas*cantColumnas*sizeof(float));
   // cudaMallocManaged(&resultado1, cantFilas*cantColumnas*sizeof(float));
@@ -2465,6 +2475,9 @@ int main()
   // for(long i=0; i<cantFilas*cantColumnas; i++)
   // {
   //   matrizA[i] = i+1;
+  //   printf("%f ", matrizA[i]);
+  //   if(i%10 == 9)
+  //     printf("\n");
   // }
   // // printf("1\n");
   // // transponerMatriz(matrizA, cantFilas, cantColumnas, resultado1);
@@ -2474,14 +2487,21 @@ int main()
   //
   // multMatrices(matrizA, cantFilas, cantColumnas, matrizA, cantColumnas, resultado1);
   //
-  // // for(int i=0; i<cantFilas*cantColumnas;i++)
-  // // {
-  // //   if(resultado1[i] != resultado2[i])
-  // //   {
-  // //     printf("Fail\n");
-  // //     exit(-1);
-  // //   }
-  // // }
+  // for(long i=0; i<cantFilas*cantColumnas; i++)
+  // {
+  //   printf("%f ", resultado1[i]);
+  //   if(i%10 == 9)
+  //     printf("\n");
+  // }
+
+  // for(int i=0; i<cantFilas*cantColumnas;i++)
+  // {
+  //   if(resultado1[i] != resultado2[i])
+  //   {
+  //     printf("Fail\n");
+  //     exit(-1);
+  //   }
+  // }
   // printf("Fin\n");
   // exit(-1);
 
