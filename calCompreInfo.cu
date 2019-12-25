@@ -22,7 +22,10 @@
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_filter.h>
 #include <gsl/gsl_min.h>
+#include <cusparse.h>
 
+#define BLOCK_DIM 16
+#define TILE_WIDTH 16
 
 // rarmijo@158.170.35.147
 
@@ -30,7 +33,7 @@
 /* sudo scp /home/yoyisaurio/Desktop/juguetes\ de\ CUDA/otroconfloat.cu rarmijo@158.170.35.139:/home/rarmijo/Desktop/ */
 
 
-// nvcc calCompreInfo.cu -lcudart -lcublas -lcuda -lblasx -I/opt/arrayfire/include/ -L/opt/arrayfire/lib64/ -lafcuda -lcfitsio -lgsl -lgslcblas -lm -o calCompreInfo
+// nvcc calCompreInfo.cu -lcudart -lcublas -lcuda -lblasx -I/opt/arrayfire/include/ -L/opt/arrayfire/lib64/ -lafcuda -lcusparse -lcfitsio -lgsl -lgslcblas -lm -o calCompreInfo
 // sudo scp /home/yoyisaurio/Desktop/proyecto/calCompreInfo.cu rarmijo@beam.diinf.usach.cl:/home/rarmijo
 // nvcc calCompreInfo.cu -lcudart -lcublas -lcuda -lblasx -I/opt/arrayfire/include/ -L/opt/arrayfire/lib64/ -lafcuda -lcfitsio -lgsl -lgslcblas -lm -o calCompreInfo
 // ./calCompreInfo
@@ -129,7 +132,8 @@ void imprimirMatrizColumna(float* vector, long cantFilas, long cantColumnas)
   {
     for(j=0;j<cantColumnas;j++)
     {
-      printf("%.12e ", vector[(((j)*(cantFilas))+(i))]);
+      // printf("%.12e ", vector[(((j)*(cantFilas))+(i))]);
+      printf("%f ", vector[(((j)*(cantFilas))+(i))]);
     }
     printf("\n");
   }
@@ -250,7 +254,7 @@ void multMatrices(float* a, long m, long k, float* b, long n, float* c)
 //   cublasHandle_t handle;
 //   stat = cublasCreate(&handle);
 //   float al = 1.0;
-//   float bet = 0.0;
+//   float bet = 1.0;
 //   stat = cublasSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
 //   cudaDeviceSynchronize();
 //   for(long i=0; i<m*n;i++)
@@ -379,21 +383,49 @@ void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long ca
 //   }
 // }
 
-__global__ void transponerMatriz_kernel(float* matrizA, float* matrizA_T, long cantFilas, long cantColumnas)
+// __global__ void transponerMatriz_kernel(float* matrizA, float* matrizA_T, long cantFilas, long cantColumnas)
+// {
+//   long miId = threadIdx.x + blockDim.x * blockIdx.x;
+//   if(miId < cantFilas*cantColumnas)
+//   {
+//     long i = miId%cantFilas;
+//     long j = miId/cantFilas;
+//     matrizA_T[(i*cantColumnas+j)] = matrizA[(j*cantFilas+i)];
+//   }
+// }
+//
+// void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado)
+// {
+//   long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
+//   transponerMatriz_kernel<<<cantBloques,1024>>>(matrizA, resultado, cantFilasMatrizA, cantColumnasMatrizA);
+//   cudaDeviceSynchronize();
+// }
+
+__global__ void transponerMatriz_kernel(float* idata, float* odata, long width, long height)
 {
-  long miId = threadIdx.x + blockDim.x * blockIdx.x;
-  if(miId < cantFilas*cantColumnas)
-  {
-    long i = miId%cantFilas;
-    long j = miId/cantFilas;
-    matrizA_T[(i*cantColumnas+j)] = matrizA[(j*cantFilas+i)];
-  }
+  __shared__ float block[BLOCK_DIM][BLOCK_DIM+1];
+	long xIndex = blockIdx.x * BLOCK_DIM + threadIdx.x;
+	long yIndex = blockIdx.y * BLOCK_DIM + threadIdx.y;
+	if((xIndex < width) && (yIndex < height))
+	{
+		long index_in = yIndex * width + xIndex;
+		block[threadIdx.y][threadIdx.x] = idata[index_in];
+	}
+	__syncthreads();
+	xIndex = blockIdx.y * BLOCK_DIM + threadIdx.x;
+	yIndex = blockIdx.x * BLOCK_DIM + threadIdx.y;
+	if((xIndex < height) && (yIndex < width))
+	{
+		long index_out = yIndex * height + xIndex;
+		odata[index_out] = block[threadIdx.x][threadIdx.y];
+	}
 }
 
 void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado)
 {
-  long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
-  transponerMatriz_kernel<<<cantBloques,1024>>>(matrizA, resultado, cantFilasMatrizA, cantColumnasMatrizA);
+  dim3 grid(cantColumnasMatrizA/BLOCK_DIM,  cantFilasMatrizA/BLOCK_DIM, 1);
+  dim3 threads(BLOCK_DIM, BLOCK_DIM, 1);
+  transponerMatriz_kernel<<<grid,threads>>>(matrizA, resultado, cantColumnasMatrizA, cantFilasMatrizA);
   cudaDeviceSynchronize();
 }
 
@@ -2411,8 +2443,276 @@ void filtroGaussiano()
   free(segundaRecta_subListaDeY);
 }
 
+void multMatrices3(float* matrizA, long M, long K, float* matrizB, long N, float* matrizD, float* matrizC)
+{
+  cusparseHandle_t handle;	cusparseCreate(&handle);
+	float* A;	cudaMalloc(&A, M * K * sizeof(float));
+	float* B;	cudaMalloc(&B, K * N * sizeof(float));
+  float* C;	cudaMalloc(&C, M * N * sizeof(float));
+  float* D;	cudaMalloc(&D, M * N * sizeof(float));
+	cudaMemcpy(A, matrizA, M * K * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(B, matrizB, K * N * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(D, matrizD, M * N * sizeof(float), cudaMemcpyHostToDevice);
+
+	// --- Descriptor for sparse matrix A
+	cusparseMatDescr_t descrA;
+  cusparseCreateMatDescr(&descrA);
+	cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ONE);
+
+	// --- Descriptor for sparse matrix B
+	cusparseMatDescr_t descrB;
+  cusparseCreateMatDescr(&descrB);
+	cusparseSetMatType(descrB, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatIndexBase(descrB, CUSPARSE_INDEX_BASE_ONE);
+
+	// --- Descriptor for sparse matrix C
+	cusparseMatDescr_t descrC;
+  cusparseCreateMatDescr(&descrC);
+	cusparseSetMatType(descrC, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatIndexBase(descrC, CUSPARSE_INDEX_BASE_ONE);
+
+  // --- Descriptor for sparse matrix D
+  cusparseMatDescr_t descrD;
+  cusparseCreateMatDescr(&descrD);
+  cusparseSetMatType(descrD, CUSPARSE_MATRIX_TYPE_GENERAL);
+  cusparseSetMatIndexBase(descrD, CUSPARSE_INDEX_BASE_ONE);
+
+  int nnzA = 0;							// --- Number of nonzero elements in dense matrix A
+  int nnzB = 0;							// --- Number of nonzero elements in dense matrix B
+  int nnzD = 0;							// --- Number of nonzero elements in dense matrix B
+
+  const int lda = M;						// --- Leading dimension of dense matrix
+  const int ldb = K;						// --- Leading dimension of dense matrix
+  const int ldd = M;						// --- Leading dimension of dense matrix
+
+  // --- Device side number of nonzero elements per row of matrix A
+  int *nnzPerVectorA; 	cudaMalloc(&nnzPerVectorA, M * sizeof(*nnzPerVectorA));
+  cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, M, K, descrA, A, lda, nnzPerVectorA, &nnzA);
+
+  // --- Device side number of nonzero elements per row of matrix B
+  int *nnzPerVectorB; 	cudaMalloc(&nnzPerVectorB, K * sizeof(*nnzPerVectorB));
+  cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, K, N, descrB, B, ldb, nnzPerVectorB, &nnzB);
+
+  // --- Device side number of nonzero elements per row of matrix B
+  int *nnzPerVectorD; 	cudaMalloc(&nnzPerVectorD, M * sizeof(*nnzPerVectorD));
+  cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, M, N, descrD, D, ldd, nnzPerVectorD, &nnzD);
+
+  // --- Device side sparse matrix
+	float *csrValA; cudaMalloc(&csrValA, nnzA * sizeof(*csrValA));
+  float *csrValB; cudaMalloc(&csrValB, nnzB * sizeof(*csrValB));
+  float *csrValD; cudaMalloc(&csrValD, nnzD * sizeof(*csrValD));
+
+  int *csrRowPtrA; cudaMalloc(&csrRowPtrA, (M + 1) * sizeof(*csrRowPtrA));
+	int *csrRowPtrB; cudaMalloc(&csrRowPtrB, (K + 1) * sizeof(*csrRowPtrB));
+  int *csrRowPtrD; cudaMalloc(&csrRowPtrD, (M + 1) * sizeof(*csrRowPtrD));
+	int *csrColIndA; cudaMalloc(&csrColIndA, nnzA * sizeof(*csrColIndA));
+  int *csrColIndB; cudaMalloc(&csrColIndB, nnzB * sizeof(*csrColIndB));
+  int *csrColIndD; cudaMalloc(&csrColIndD, nnzD * sizeof(*csrColIndD));
+
+  cusparseSdense2csr(handle, M, K, descrA, A, lda, nnzPerVectorA, csrValA, csrRowPtrA, csrColIndA);
+	cusparseSdense2csr(handle, K, N, descrB, B, ldb, nnzPerVectorB, csrValB, csrRowPtrB, csrColIndB);
+  cusparseSdense2csr(handle, M, N, descrD, D, ldd, nnzPerVectorD, csrValD, csrRowPtrD, csrColIndD);
+
+
+  // assume matrices A, B and D are ready.
+  int baseC, nnzC;
+  csrgemm2Info_t info = NULL;
+  size_t bufferSize;
+  void *buffer = NULL;
+  // nnzTotalDevHostPtr points to host memory
+  int *nnzTotalDevHostPtr = &nnzC;
+  float alpha = 1.0;
+  float beta  = 1.0;
+  cusparseSetPointerMode(handle, CUSPARSE_POINTER_MODE_HOST);
+
+  // step 1: create an opaque structure
+  cusparseCreateCsrgemm2Info(&info);
+
+  // step 2: allocate buffer for csrgemm2Nnz and csrgemm2
+  cusparseScsrgemm2_bufferSizeExt(handle, M, N, K, &alpha,
+      descrA, nnzA, csrRowPtrA, csrColIndA,
+      descrB, nnzB, csrRowPtrB, csrColIndB,
+      &beta,
+      descrD, nnzD, csrRowPtrD, csrColIndD,
+      info,
+      &bufferSize);
+  cudaMalloc(&buffer, bufferSize);
+
+  // step 3: compute csrRowPtrC
+  int *csrRowPtrC;
+  cudaMalloc((void**)&csrRowPtrC, sizeof(int)*(M+1));
+  cusparseXcsrgemm2Nnz(handle, M, N, K,
+          descrA, nnzA, csrRowPtrA, csrColIndA,
+          descrB, nnzB, csrRowPtrB, csrColIndB,
+          descrD, nnzD, csrRowPtrD, csrColIndD,
+          descrC, csrRowPtrC, nnzTotalDevHostPtr,
+          info, buffer);
+  if (NULL != nnzTotalDevHostPtr)
+  {
+      nnzC = *nnzTotalDevHostPtr;
+  }
+  else
+  {
+      cudaMemcpy(&nnzC, csrRowPtrC+M, sizeof(int), cudaMemcpyDeviceToHost);
+      cudaMemcpy(&baseC, csrRowPtrC, sizeof(int), cudaMemcpyDeviceToHost);
+      nnzC -= baseC;
+  }
+
+  // step 4: finish sparsity pattern and value of C
+  int *csrColIndC;
+  cudaMalloc((void**)&csrColIndC, sizeof(int)*nnzC);
+  float *csrValC;
+  cudaMalloc((void**)&csrValC, sizeof(float)*nnzC);
+  // Remark: set csrValC to null if only sparsity pattern is required.
+  cusparseScsrgemm2(handle, M, N, K, &alpha,
+          descrA, nnzA, csrValA, csrRowPtrA, csrColIndA,
+          descrB, nnzB, csrValB, csrRowPtrB, csrColIndB,
+          &beta,
+          descrD, nnzD, csrValD, csrRowPtrD, csrColIndD,
+          descrC, csrValC, csrRowPtrC, csrColIndC,
+          info, buffer);
+
+  cusparseScsr2dense(handle, M, N, descrC, csrValC, csrRowPtrC, csrColIndC, C, M);
+  cudaMemcpy(matrizC, C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  // step 5: destroy the opaque structure
+  cusparseDestroyCsrgemm2Info(info);
+}
+
+void multMatrices2(float* h_A_dense, long M, long K, float* h_B_dense, long N, float* h_C_dense)
+{
+  cusparseHandle_t handle;	cusparseCreate(&handle);
+	float *d_A_dense;	cudaMalloc(&d_A_dense, M * K * sizeof(*d_A_dense));
+	float *d_B_dense;	cudaMalloc(&d_B_dense, K * N * sizeof(*d_B_dense));
+	float *d_C_dense;	cudaMalloc(&d_C_dense, M * N * sizeof(*d_C_dense));
+	cudaMemcpy(d_A_dense, h_A_dense, M * K * sizeof(*d_A_dense), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_B_dense, h_B_dense, K * N * sizeof(*d_B_dense), cudaMemcpyHostToDevice);
+
+	// --- Descriptor for sparse matrix A
+	cusparseMatDescr_t descrA;
+  cusparseCreateMatDescr(&descrA);
+	cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ONE);
+
+	// --- Descriptor for sparse matrix B
+	cusparseMatDescr_t descrB;
+  cusparseCreateMatDescr(&descrB);
+	cusparseSetMatType(descrB, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatIndexBase(descrB, CUSPARSE_INDEX_BASE_ONE);
+
+	// --- Descriptor for sparse matrix C
+	cusparseMatDescr_t descrC;
+  cusparseCreateMatDescr(&descrC);
+	cusparseSetMatType(descrC, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatIndexBase(descrC, CUSPARSE_INDEX_BASE_ONE);
+
+  int nnzA = 0;							// --- Number of nonzero elements in dense matrix A
+  int nnzB = 0;							// --- Number of nonzero elements in dense matrix B
+
+  const int lda = M;						// --- Leading dimension of dense matrix
+  const int ldb = K;						// --- Leading dimension of dense matrix
+
+  // --- Device side number of nonzero elements per row of matrix A
+  int *d_nnzPerVectorA; 	cudaMalloc(&d_nnzPerVectorA, M * sizeof(*d_nnzPerVectorA));
+  cusparseSnnz(handle, CUSPARSE_DIRECTION_COLUMN, M, K, descrA, d_A_dense, lda, d_nnzPerVectorA, &nnzA);
+
+  // --- Device side number of nonzero elements per row of matrix B
+  int *d_nnzPerVectorB; 	cudaMalloc(&d_nnzPerVectorB, K * sizeof(*d_nnzPerVectorB));
+  cusparseSnnz(handle, CUSPARSE_DIRECTION_COLUMN, K, N, descrB, d_B_dense, ldb, d_nnzPerVectorB, &nnzB);
+
+  // --- Device side sparse matrix
+	float *d_A; cudaMalloc(&d_A, nnzA * sizeof(*d_A));
+	float *d_B; cudaMalloc(&d_B, nnzB * sizeof(*d_B));
+
+	int *d_A_RowIndices; cudaMalloc(&d_A_RowIndices, (M + 1) * sizeof(*d_A_RowIndices));
+	int *d_B_RowIndices; cudaMalloc(&d_B_RowIndices, (K + 1) * sizeof(*d_B_RowIndices));
+	int *d_C_RowIndices; cudaMalloc(&d_C_RowIndices, (M + 1) * sizeof(*d_C_RowIndices));
+	int *d_A_ColIndices; cudaMalloc(&d_A_ColIndices, nnzA * sizeof(*d_A_ColIndices));
+	int *d_B_ColIndices; cudaMalloc(&d_B_ColIndices, nnzB * sizeof(*d_B_ColIndices));
+
+  cusparseSdense2csr(handle, M, K, descrA, d_A_dense, lda, d_nnzPerVectorA, d_A, d_A_RowIndices, d_A_ColIndices);
+	cusparseSdense2csr(handle, K, N, descrB, d_B_dense, ldb, d_nnzPerVectorB, d_B, d_B_RowIndices, d_B_ColIndices);
+
+  int baseC, nnzC = 0;
+	int* nnzTotalDevHostPtr = &nnzC;
+
+	cusparseSetPointerMode(handle, CUSPARSE_POINTER_MODE_HOST);
+	cusparseXcsrgemmNnz(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, M, N, K, descrA, nnzA,
+		d_A_RowIndices, d_A_ColIndices, descrB, nnzB, d_B_RowIndices, d_B_ColIndices, descrC, d_C_RowIndices, nnzTotalDevHostPtr);
+	if (NULL != nnzTotalDevHostPtr)
+    nnzC = *nnzTotalDevHostPtr;
+	else
+  {
+		cudaMemcpy(&nnzC, d_C_RowIndices + M, sizeof(int), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&baseC, d_C_RowIndices, sizeof(int), cudaMemcpyDeviceToHost);
+		nnzC -= baseC;
+	}
+	int* d_C_ColIndices; cudaMalloc(&d_C_ColIndices, nnzC * sizeof(int));
+	float* d_C; cudaMalloc(&d_C, nnzC * sizeof(float));
+	float* h_C = (float*) malloc(nnzC * sizeof(*h_C));
+	int* h_C_ColIndices = (int*) malloc(nnzC * sizeof(*h_C_ColIndices));
+
+	int *h_C_RowIndices = (int *)malloc((M + 1) * sizeof(*h_C_RowIndices));
+  cudaMemcpy(h_C_RowIndices, d_C_RowIndices, (M + 1) * sizeof(*h_C_RowIndices), cudaMemcpyDeviceToHost);
+
+  for (int i = 0; i < (M + 1); ++i)
+  printf("h_C_RowIndices[%i] = %i \n", i, h_C_RowIndices[i]);
+  printf("\n");
+
+	cusparseScsrgemm(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, M, N, K, descrA, nnzA,
+		d_A, d_A_RowIndices, d_A_ColIndices, descrB, nnzB, d_B, d_B_RowIndices, d_B_ColIndices, descrC,
+		d_C, d_C_RowIndices, d_C_ColIndices);
+  cusparseScsr2dense(handle, M, N, descrC, d_C, d_C_RowIndices, d_C_ColIndices, d_C_dense, M);
+  cudaMemcpy(h_C_dense, d_C_dense, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+}
+
 int main()
 {
+
+  int M = 10;
+  int K = 5;
+  int N = 3;
+  float* matrizA = (float*) calloc(M*K, sizeof(float));
+  float* matrizB = (float*) calloc(K*N, sizeof(float));
+  float* matrizC = (float*) calloc(M*N, sizeof(float));
+  float* matrizD = (float*) calloc(M*N, sizeof(float));
+  for(int i=0; i<M*K; i=i+2)
+  {
+    matrizA[i] = i+1;
+  }
+  imprimirMatrizColumna(matrizA, M, K);
+  // for(int i=0; i<M*K; i++)
+  // {
+  //   printf("%f ", matrizA[i]);
+  //   if(i%K == K-1)
+  //     printf("\n");
+  // }
+  // printf("\n");
+  for(int i=0; i<K*N; i=i+2)
+  {
+    matrizB[i] = i+2;
+  }
+  imprimirMatrizColumna(matrizB, K, N);
+  // for(int i=0; i<K*N; i++)
+  // {
+  //   printf("%f ", matrizB[i]);
+  //   if(i%N == N-1)
+  //     printf("\n");
+  // }
+  // printf("\n");
+  // multMatrices(matrizA, M, K, matrizB, N, matrizC);
+  // multMatrices2(matrizA, M, K, matrizB, N, matrizC);
+  multMatrices3(matrizA, M, K, matrizB, N, matrizD, matrizC);
+  imprimirMatrizColumna(matrizC, M, N);
+  // for(int i=0; i<M*N; i++)
+  // {
+  //   printf("%f ", matrizC[i]);
+  //   if(i%N == N-1)
+  //     printf("\n");
+  // }
+  exit(1);
+
+
   // PARAMETROS GENERALES
   long cantVisi = 15034;
   long inicio = 0;
@@ -2422,7 +2722,7 @@ int main()
   // long inicio = 0;
   // long fin = 30000;
 
-  int N = 512;
+  // int N = 512;
   // long N = 1600; //HLTau_B6cont.calavg.tav300s
   int maxIter = 100;
 
@@ -2539,84 +2839,11 @@ int main()
   fprintf(archivoTiempo, "El tiempo de ejecucion fue %.12f segundos o %.12f minutos o %.12f horas.\n", time_taken, minutitos, horas);
   fclose(archivoTiempo);
 
-  // // char nombreDirPrin[] = "calCompresiones_Normal";
-  // // char nombreArchivoTiempo[] = "tiempo.txt";
-  // // int cantParamEvaInfo = 100;
-  // // float inicioIntervalo = 1.0;
-  // // float finIntervalo = 100.0;
-  // // float tolGolden = 1E-12;
-  // // float nuevoAncho = 1.0 * delta_u;
-  // // clock_t t;
-  // // t = clock();
-  // // calPSNRDeDistintasCompresiones_Normal(inicioIntervalo, finIntervalo, cantParamEvaInfo, nombreDirPrin, nuevoAncho, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde);
-  // // // calPSNRDeDistintasCompresiones_Rect(inicioIntervalo, finIntervalo, cantParamEvaInfo, nombreDirPrin, nuevoAncho, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde);
-  // // // calImagenesADistintasCompresiones_Rect(inicioIntervalo, finIntervalo, cantParamEvaInfo, nombreDirPrin, nuevoAncho, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde);
-  // // t = clock() - t;
-  // // float time_taken = ((float)t)/CLOCKS_PER_SEC;
-  // // char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*strlen(nombreArchivoTiempo)*strlen(nombreDirPrin)+sizeof(char)*3);
-  // // strcpy(nombreCompletoArchivoTiempo, nombreDirPrin);
-  // // strcat(nombreCompletoArchivoTiempo, "/");
-  // // strcat(nombreCompletoArchivoTiempo, nombreArchivoTiempo);
-  // // FILE* archivoTiempo = fopen(nombreCompletoArchivoTiempo, "w");
-  // // float minutitos = time_taken/60;
-  // // float horas = minutitos/60;
-  // // printf("El tiempo de ejecucion fue %.12f segundos o %.12f minutos o %.12f horas.\n", time_taken, minutitos, horas);
-  // // fprintf(archivoTiempo, "El tiempo de ejecucion fue %.12f segundos o %.12f minutos o %.12f horas.\n", time_taken, minutitos, horas);
-  // // fclose(archivoTiempo);
-  //
-  //
-  // // printf("...Comenzando calculo de MV...\n");
-  // // clock_t tiempoCalculoMV;
-  // // tiempoCalculoMV = clock();
-  // // float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, delta_v, matrizDeUnos);
-  // // tiempoCalculoMV = clock() - tiempoCalculoMV;
-  // // float tiempoTotalCalculoMV = ((float)tiempoCalculoMV)/CLOCKS_PER_SEC;
-  // // printf("Calculo de MV completado.\n");
-  // //
-  // // printf("...Comenzando calculo de MU...\n");
-  // // clock_t tiempoCalculoMU;
-  // // tiempoCalculoMU = clock();
-  // // float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
-  // // tiempoCalculoMU = clock() - tiempoCalculoMU;
-  // // float tiempoTotalCalculoMU = ((float)tiempoCalculoMU)/CLOCKS_PER_SEC;
-  // // printf("Calculo de MU completado.\n");
-  // //
-  // // int blockSize;   // The launch configurator returned block size
-  // // int minGridSize; // The minimum grid size needed to achieve the
-  // //                  // maximum occupancy for a full device launch
-  // // int gridSize;    // The actual grid size needed, based on input size
-  // //
-  // // cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, transponerMatriz_kernel, 0, 0);
-  // // // Round up according to array size
-  // // gridSize = (cantVisi*N + blockSize - 1) / blockSize;
-  // //
-  // // // long cantBloques = ceil((float) cantFilas*N/1024);
-  // // // hadamardProduct_kernel<<<gridSize,blockSize>>>(MU, MV, matrizDeUnos, cantVisi, N);
-  // // // combinacionLinealMatrices_kernel<<<gridSize,blockSize>>>(5.0, MU, cantVisi, N, 5.0, MV);
-  // // transponerMatriz_kernel<<<gridSize,blockSize>>>(MU, matrizDeUnos, cantVisi, N);
-  // // cudaDeviceSynchronize();
-  // //
-  // //   // calculate theoretical occupancy
-  // // int maxActiveBlocks;
-  // // cudaOccupancyMaxActiveBlocksPerMultiprocessor(&maxActiveBlocks, transponerMatriz_kernel, blockSize, 0);
-  // //
-  // // int device;
-  // // cudaDeviceProp props;
-  // // cudaGetDevice(&device);
-  // // cudaGetDeviceProperties(&props, device);
-  // //
-  // // float occupancy = (maxActiveBlocks * blockSize / props.warpSize) /
-  // //                   (float)(props.maxThreadsPerMultiProcessor /
-  // //                           props.warpSize);
-  // //
-  // // printf("Launched blocks of size %d. Theoretical occupancy: %f\n",
-  // //        blockSize, occupancy);
-  //
-  // cudaFree(u);
-  // cudaFree(v);
-  // cudaFree(w);
-  // cudaFree(visi_parteImaginaria);
-  // cudaFree(visi_parteReal);
-  // cudaFree(matrizDeUnos);
-  // cudaFree(matrizDeUnosEstFourier);
+  cudaFree(u);
+  cudaFree(v);
+  cudaFree(w);
+  cudaFree(visi_parteImaginaria);
+  cudaFree(visi_parteReal);
+  cudaFree(matrizDeUnos);
+  cudaFree(matrizDeUnosEstFourier);
 }
