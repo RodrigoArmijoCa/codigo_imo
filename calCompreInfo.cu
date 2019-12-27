@@ -24,100 +24,15 @@
 #include <gsl/gsl_min.h>
 #include <cusparse.h>
 #include <omp.h>
+#include <cuda_runtime.h>
+#include <helper_cuda.h>
 
 #define BLOCK_DIM 16
 #define TILE_WIDTH 16
 
 // BEAM: rarmijo@158.170.35.147
 // PC-LAB: rarmijo@158.170.35.139
-//nvcc calCompreInfo.cu -lcudart -lcublas -lcuda -lblasx -I/opt/arrayfire/include/ -L/opt/arrayfire/lib64/ -lafcuda -lcusparse -Xcompiler -fopenmp -lcfitsio -I/usr/include/gsl -lgsl -lgslcblas -lm -o calCompreInfo
-
-void multMatrices2(float* h_A_dense, long M, long K, float* h_B_dense, long N, float* h_C_dense)
-{
-  cusparseHandle_t handle;	cusparseCreate(&handle);
-	float *d_A_dense;	cudaMalloc(&d_A_dense, M * K * sizeof(*d_A_dense));
-	float *d_B_dense;	cudaMalloc(&d_B_dense, K * N * sizeof(*d_B_dense));
-	float *d_C_dense;	cudaMalloc(&d_C_dense, M * N * sizeof(*d_C_dense));
-	cudaMemcpy(d_A_dense, h_A_dense, M * K * sizeof(*d_A_dense), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_B_dense, h_B_dense, K * N * sizeof(*d_B_dense), cudaMemcpyHostToDevice);
-
-	// --- Descriptor for sparse matrix A
-	cusparseMatDescr_t descrA;
-  cusparseCreateMatDescr(&descrA);
-	cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ONE);
-
-	// --- Descriptor for sparse matrix B
-	cusparseMatDescr_t descrB;
-  cusparseCreateMatDescr(&descrB);
-	cusparseSetMatType(descrB, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatIndexBase(descrB, CUSPARSE_INDEX_BASE_ONE);
-
-	// --- Descriptor for sparse matrix C
-	cusparseMatDescr_t descrC;
-  cusparseCreateMatDescr(&descrC);
-	cusparseSetMatType(descrC, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatIndexBase(descrC, CUSPARSE_INDEX_BASE_ONE);
-
-  int nnzA = 0;							// --- Number of nonzero elements in dense matrix A
-  int nnzB = 0;							// --- Number of nonzero elements in dense matrix B
-
-  const int lda = M;						// --- Leading dimension of dense matrix
-  const int ldb = K;						// --- Leading dimension of dense matrix
-
-  // --- Device side number of nonzero elements per row of matrix A
-  int *d_nnzPerVectorA; 	cudaMalloc(&d_nnzPerVectorA, M * sizeof(*d_nnzPerVectorA));
-  cusparseSnnz(handle, CUSPARSE_DIRECTION_COLUMN, M, K, descrA, d_A_dense, lda, d_nnzPerVectorA, &nnzA);
-
-  // --- Device side number of nonzero elements per row of matrix B
-  int *d_nnzPerVectorB; 	cudaMalloc(&d_nnzPerVectorB, K * sizeof(*d_nnzPerVectorB));
-  cusparseSnnz(handle, CUSPARSE_DIRECTION_COLUMN, K, N, descrB, d_B_dense, ldb, d_nnzPerVectorB, &nnzB);
-
-  // --- Device side sparse matrix
-	float *d_A; cudaMalloc(&d_A, nnzA * sizeof(*d_A));
-	float *d_B; cudaMalloc(&d_B, nnzB * sizeof(*d_B));
-
-	int *d_A_RowIndices; cudaMalloc(&d_A_RowIndices, (M + 1) * sizeof(*d_A_RowIndices));
-	int *d_B_RowIndices; cudaMalloc(&d_B_RowIndices, (K + 1) * sizeof(*d_B_RowIndices));
-	int *d_C_RowIndices; cudaMalloc(&d_C_RowIndices, (M + 1) * sizeof(*d_C_RowIndices));
-	int *d_A_ColIndices; cudaMalloc(&d_A_ColIndices, nnzA * sizeof(*d_A_ColIndices));
-	int *d_B_ColIndices; cudaMalloc(&d_B_ColIndices, nnzB * sizeof(*d_B_ColIndices));
-
-  cusparseSdense2csr(handle, M, K, descrA, d_A_dense, lda, d_nnzPerVectorA, d_A, d_A_RowIndices, d_A_ColIndices);
-	cusparseSdense2csr(handle, K, N, descrB, d_B_dense, ldb, d_nnzPerVectorB, d_B, d_B_RowIndices, d_B_ColIndices);
-
-  int baseC, nnzC = 0;
-	int* nnzTotalDevHostPtr = &nnzC;
-
-	cusparseSetPointerMode(handle, CUSPARSE_POINTER_MODE_HOST);
-	cusparseXcsrgemmNnz(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, M, N, K, descrA, nnzA,
-		d_A_RowIndices, d_A_ColIndices, descrB, nnzB, d_B_RowIndices, d_B_ColIndices, descrC, d_C_RowIndices, nnzTotalDevHostPtr);
-	if (NULL != nnzTotalDevHostPtr)
-    nnzC = *nnzTotalDevHostPtr;
-	else
-  {
-		cudaMemcpy(&nnzC, d_C_RowIndices + M, sizeof(int), cudaMemcpyDeviceToHost);
-		cudaMemcpy(&baseC, d_C_RowIndices, sizeof(int), cudaMemcpyDeviceToHost);
-		nnzC -= baseC;
-	}
-	int* d_C_ColIndices; cudaMalloc(&d_C_ColIndices, nnzC * sizeof(int));
-	float* d_C; cudaMalloc(&d_C, nnzC * sizeof(float));
-	float* h_C = (float*) malloc(nnzC * sizeof(*h_C));
-	int* h_C_ColIndices = (int*) malloc(nnzC * sizeof(*h_C_ColIndices));
-
-	int *h_C_RowIndices = (int *)malloc((M + 1) * sizeof(*h_C_RowIndices));
-  cudaMemcpy(h_C_RowIndices, d_C_RowIndices, (M + 1) * sizeof(*h_C_RowIndices), cudaMemcpyDeviceToHost);
-
-  for (int i = 0; i < (M + 1); ++i)
-  printf("h_C_RowIndices[%i] = %i \n", i, h_C_RowIndices[i]);
-  printf("\n");
-
-	cusparseScsrgemm(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, M, N, K, descrA, nnzA,
-		d_A, d_A_RowIndices, d_A_ColIndices, descrB, nnzB, d_B, d_B_RowIndices, d_B_ColIndices, descrC,
-		d_C, d_C_RowIndices, d_C_ColIndices);
-  cusparseScsr2dense(handle, M, N, descrC, d_C, d_C_RowIndices, d_C_ColIndices, d_C_dense, M);
-  cudaMemcpy(h_C_dense, d_C_dense, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-}
+//nvcc calCompreInfo.cu -lcudart -lcublas -lcuda -lblasx -I/opt/arrayfire/include/ -L/opt/arrayfire/lib64/ -lafcuda -lcusparse -Xcompiler -fopenmp -lcfitsio -I/usr/include/gsl -lgsl -lgslcblas -lm -I/usr/lib/cuda-10.0/samples/common/inc -o calCompreInfo
 
 struct parametros_BaseRect
 {
@@ -144,6 +59,72 @@ struct parametros_BaseNormal
 };
 
 #define sqrt5 2.236067977499789696
+
+void findMultipleBestGPUs(int &num_of_devices, int *device_ids)
+{
+  // Find the best CUDA capable GPU device
+  int current_device = 0;
+
+  int device_count;
+  checkCudaErrors(cudaGetDeviceCount(&device_count));
+  typedef struct gpu_perf_t {
+    uint64_t compute_perf;
+    int device_id;
+  } gpu_perf;
+
+  gpu_perf *gpu_stats = (gpu_perf *)malloc(sizeof(gpu_perf) * device_count);
+
+  cudaDeviceProp deviceProp;
+  int devices_prohibited = 0;
+  while (current_device < device_count) {
+    cudaGetDeviceProperties(&deviceProp, current_device);
+
+    // If this GPU is not running on Compute Mode prohibited,
+    // then we can add it to the list
+    int sm_per_multiproc;
+    if (deviceProp.computeMode != cudaComputeModeProhibited) {
+      if (deviceProp.major == 9999 && deviceProp.minor == 9999) {
+        sm_per_multiproc = 1;
+      } else {
+        sm_per_multiproc =
+            _ConvertSMVer2Cores(deviceProp.major, deviceProp.minor);
+      }
+
+      gpu_stats[current_device].compute_perf =
+          (uint64_t)deviceProp.multiProcessorCount * sm_per_multiproc *
+          deviceProp.clockRate;
+      gpu_stats[current_device].device_id = current_device;
+
+    } else {
+      devices_prohibited++;
+    }
+
+    ++current_device;
+  }
+  if (devices_prohibited == device_count) {
+    fprintf(stderr,
+            "gpuGetMaxGflopsDeviceId() CUDA error:"
+            " all devices have compute mode prohibited.\n");
+    exit(EXIT_FAILURE);
+  } else {
+    gpu_perf temp_elem;
+    // Sort the GPUs by highest compute perf.
+    for (int i = 0; i < current_device - 1; i++) {
+      for (int j = 0; j < current_device - i - 1; j++) {
+        if (gpu_stats[j].compute_perf < gpu_stats[j + 1].compute_perf) {
+          temp_elem = gpu_stats[j];
+          gpu_stats[j] = gpu_stats[j + 1];
+          gpu_stats[j + 1] = temp_elem;
+        }
+      }
+    }
+
+    for (int i = 0; i < num_of_devices; i++) {
+      device_ids[i] = gpu_stats[i].device_id;
+    }
+  }
+  free(gpu_stats);
+}
 
 char* numAString(int* numero)
 {
@@ -184,6 +165,53 @@ float* linspace(float a, float b, long n)
         u[i] = a + i*c;
     u[n - 1] = b;
     return u;
+}
+
+void linspaceSinBordes(float a, float b, long n, float* u)
+{
+    float c;
+    int i;
+    c = (b - a)/(n - 1);
+    for(i = 0; i < n - 1; ++i)
+        u[i] = a + i*c;
+    u[n - 1] = b;
+}
+
+float* linspaceNoEquiespaciado(float* limitesDeZonas, float* cantPuntosPorZona, int cantParesDePuntos)
+{
+  // float c1, float b1, float a1, float a2, float b2, float c2, int nc, int nb, int na
+  int cantZonas = cantParesDePuntos*2-1;
+  int cantPuntosTotales = cantParesDePuntos*2;
+  for(int i=0; i<cantZonas; i++)
+  {
+    cantPuntosTotales += cantPuntosPorZona[i%cantParesDePuntos];
+  }
+  float* puntosTotales = (float*) malloc(sizeof(float)*cantPuntosTotales);
+  int posicionActual = 0;
+  int posicionCantPuntosPorZona = 0;
+  for(int i=0; i<cantZonas; i++)
+  {
+    int cantPuntosIntermediosAInsertar;
+    if(posicionCantPuntosPorZona < cantParesDePuntos)
+    {
+      cantPuntosIntermediosAInsertar = cantPuntosPorZona[posicionCantPuntosPorZona]+2;
+      posicionCantPuntosPorZona++;
+    }
+    else
+    {
+      int nuevaPosicion = cantZonas - posicionCantPuntosPorZona - 1;
+      cantPuntosIntermediosAInsertar = cantPuntosPorZona[nuevaPosicion]+2;
+      posicionCantPuntosPorZona++;
+    }
+    linspaceSinBordes(limitesDeZonas[i], limitesDeZonas[i+1], cantPuntosIntermediosAInsertar, &(puntosTotales[posicionActual]));
+    posicionActual += cantPuntosIntermediosAInsertar-1;
+  }
+  for(int i=0; i<cantPuntosTotales; i++)
+  {
+    printf("%f ", puntosTotales[i]);
+  }
+  printf("\n");
+  return puntosTotales;
 }
 
 void imprimirVector(float* lista, int tamanoLista)
@@ -292,38 +320,12 @@ float** transformarMatrizColumnaAMatriz(float* matrizColumna, int cantFilas, int
   return matriz;
 }
 
-// void multMatrices(float* a, long m, long k, float* b, long n, float* c)
-// {
-//   cublasXtHandle_t handle;
-//   cublasXtCreate(&handle);
-//   int devices[1] = { 0 };
-//   if(cublasXtDeviceSelect(handle, 1, devices) != CUBLAS_STATUS_SUCCESS)
-//   {
-//     printf("set devices fail\n");
-//   }
-//   float al = 1.0;
-//   float bet = 0.0;
-//   cublasXtSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
-//   cudaDeviceSynchronize();
-//   for(long i=0; i<m*n;i++)
-//   {
-//     if(isnan(c[i]))
-//     {
-//       printf("Valor nan encontrado en multMatrices.\n");
-//       break;
-//     }
-//   }
-//   cublasXtDestroy(handle);
-// }
-
 void multMatrices(float* a, long m, long k, float* b, long n, float* c, int numGPUs)
 {
   cublasXtHandle_t handle;
   cublasXtCreate(&handle);
-  int* devices = (int*) malloc(sizeof(int)*numGPUs);
-  for(int i=0; i<numGPUs; i++)
-    devices[i] = i;
-  if(cublasXtDeviceSelect(handle, numGPUs, devices) != CUBLAS_STATUS_SUCCESS)
+  int devices[1] = { 0 };
+  if(cublasXtDeviceSelect(handle, 1, devices) != CUBLAS_STATUS_SUCCESS)
   {
     printf("set devices fail\n");
   }
@@ -340,18 +342,291 @@ void multMatrices(float* a, long m, long k, float* b, long n, float* c, int numG
     }
   }
   cublasXtDestroy(handle);
-  free(devices);
 }
 
-// void multMatrices(float* a, long m, long k, float* b, long n, float* c)
+// void multMatrices(float* A, long M, long K, float* B, long N, float* C, int numGPUs)
 // {
-//   cudaError_t cudaStat;
-//   cublasStatus_t stat;
+//   printf("MultMatrices1\n");
+//   cusparseHandle_t handle;	cusparseCreate(&handle);
+//   float *d_C_dense;
+//   cudaMallocManaged(&d_C_dense, M*N*sizeof(float));
+//   printf("MultMatrices2\n");
+//
+//   float *D;
+//   cudaMallocManaged(&D, M*N*sizeof(float));
+//   cudaMemset(D, 0, M*N*sizeof(float));
+//   printf("MultMatrices3\n");
+//
+// 	// --- Descriptor for sparse matrix A
+// 	cusparseMatDescr_t descrA;
+//   cusparseCreateMatDescr(&descrA);
+// 	cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL);
+// 	cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ONE);
+//
+// 	// --- Descriptor for sparse matrix B
+// 	cusparseMatDescr_t descrB;
+//   cusparseCreateMatDescr(&descrB);
+// 	cusparseSetMatType(descrB, CUSPARSE_MATRIX_TYPE_GENERAL);
+// 	cusparseSetMatIndexBase(descrB, CUSPARSE_INDEX_BASE_ONE);
+//
+// 	// --- Descriptor for sparse matrix C
+// 	cusparseMatDescr_t descrC;
+//   cusparseCreateMatDescr(&descrC);
+// 	cusparseSetMatType(descrC, CUSPARSE_MATRIX_TYPE_GENERAL);
+// 	cusparseSetMatIndexBase(descrC, CUSPARSE_INDEX_BASE_ONE);
+//
+//   // --- Descriptor for sparse matrix D
+//   cusparseMatDescr_t descrD;
+//   cusparseCreateMatDescr(&descrD);
+//   cusparseSetMatType(descrD, CUSPARSE_MATRIX_TYPE_GENERAL);
+//   cusparseSetMatIndexBase(descrD, CUSPARSE_INDEX_BASE_ONE);
+//
+//   int nnzA = 0;							// --- Number of nonzero elements in dense matrix A
+//   int nnzB = 0;							// --- Number of nonzero elements in dense matrix B
+//   int nnzD = 0;							// --- Number of nonzero elements in dense matrix B
+//
+//   const int lda = M;						// --- Leading dimension of dense matrix
+//   const int ldb = K;						// --- Leading dimension of dense matrix
+//   const int ldd = M;						// --- Leading dimension of dense matrix
+//
+//   printf("MultMatrices4\n");
+//
+//   cusparseStatus_t estado;
+//   // --- Device side number of nonzero elements per row of matrix A
+//   int *nnzPerVectorA;
+//   printf("MultMatrices4.1\n");
+//   cudaMallocManaged(&nnzPerVectorA, M * sizeof(*nnzPerVectorA));
+//   printf("MultMatrices4.2\n");
+//   estado = cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, M, K, descrA, A, lda, nnzPerVectorA, &nnzA);
+//   if(estado != CUSPARSE_STATUS_SUCCESS)
+//   {
+//     if(CUSPARSE_STATUS_NOT_INITIALIZED == estado)
+//       printf("CUSPARSE_STATUS_NOT_INITIALIZED\n");
+//     else if(CUSPARSE_STATUS_ALLOC_FAILED == estado)
+//       printf("CUSPARSE_STATUS_ALLOC_FAILED\n");
+//     else if(CUSPARSE_STATUS_INVALID_VALUE == estado)
+//       printf("CUSPARSE_STATUS_INVALID_VALUE\n");
+//     else if(CUSPARSE_STATUS_ARCH_MISMATCH == estado)
+//       printf("CUSPARSE_STATUS_ARCH_MISMATCH\n");
+//     else if(CUSPARSE_STATUS_EXECUTION_FAILED == estado)
+//       printf("CUSPARSE_STATUS_EXECUTION_FAILED\n");
+//     else if(CUSPARSE_STATUS_INTERNAL_ERROR == estado)
+//       printf("CUSPARSE_STATUS_INTERNAL_ERROR\n");
+//     else if(CUSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED == estado)
+//       printf("CUSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED\n");
+//   }
+//   printf("MultMatrices4.3\n");
+//
+//   // --- Device side number of nonzero elements per row of matrix B
+//   int *nnzPerVectorB;
+//   printf("MultMatrices4.4\n");
+//   cudaMallocManaged(&nnzPerVectorB, K * sizeof(*nnzPerVectorB));
+//   printf("MultMatrices4.5\n");
+//   cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, K, N, descrB, B, ldb, nnzPerVectorB, &nnzB);
+//   printf("MultMatrices4.6\n");
+//
+//   // --- Device side number of nonzero elements per row of matrix B
+//   int *nnzPerVectorD;
+//   printf("MultMatrices4.7\n");
+//   cudaMallocManaged(&nnzPerVectorD, M * sizeof(*nnzPerVectorD));
+//   printf("MultMatrices4.8\n");
+//   cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, M, N, descrD, D, ldd, nnzPerVectorD, &nnzD);
+//
+//   printf("MultMatrices5\n");
+//   // --- Device side sparse matrix
+// 	float *csrValA; cudaMallocManaged(&csrValA, nnzA * sizeof(*csrValA));
+//   float *csrValB; cudaMallocManaged(&csrValB, nnzB * sizeof(*csrValB));
+//   float *csrValD; cudaMallocManaged(&csrValD, nnzD * sizeof(*csrValD));
+//
+//   printf("MultMatrices6\n");
+//
+//   int *csrRowPtrA; cudaMallocManaged(&csrRowPtrA, (M + 1) * sizeof(*csrRowPtrA));
+// 	int *csrRowPtrB; cudaMallocManaged(&csrRowPtrB, (K + 1) * sizeof(*csrRowPtrB));
+//   int *csrRowPtrD; cudaMallocManaged(&csrRowPtrD, (M + 1) * sizeof(*csrRowPtrD));
+// 	int *csrColIndA; cudaMallocManaged(&csrColIndA, nnzA * sizeof(*csrColIndA));
+//   int *csrColIndB; cudaMallocManaged(&csrColIndB, nnzB * sizeof(*csrColIndB));
+//   int *csrColIndD; cudaMallocManaged(&csrColIndD, nnzD * sizeof(*csrColIndD));
+//
+//   printf("MultMatrices7\n");
+//
+//   cusparseSdense2csr(handle, M, K, descrA, A, lda, nnzPerVectorA, csrValA, csrRowPtrA, csrColIndA);
+// 	cusparseSdense2csr(handle, K, N, descrB, B, ldb, nnzPerVectorB, csrValB, csrRowPtrB, csrColIndB);
+//   cusparseSdense2csr(handle, M, N, descrD, D, ldd, nnzPerVectorD, csrValD, csrRowPtrD, csrColIndD);
+//
+//   printf("MultMatrices8\n");
+//
+//   // assume matrices A, B and D are ready.
+//   int baseC, nnzC;
+//   csrgemm2Info_t info = NULL;
+//   size_t bufferSize;
+//   void *buffer = NULL;
+//   // nnzTotalDevHostPtr points to host memory
+//   int *nnzTotalDevHostPtr = &nnzC;
+//   float alpha = 1.0;
+//   float beta  = 1.0;
+//   cusparseSetPointerMode(handle, CUSPARSE_POINTER_MODE_HOST);
+//
+//   printf("MultMatrices9\n");
+//
+//   // step 1: create an opaque structure
+//   cusparseCreateCsrgemm2Info(&info);
+//
+//   printf("MultMatrices10\n");
+//
+//   // step 2: allocate buffer for csrgemm2Nnz and csrgemm2
+//   cusparseScsrgemm2_bufferSizeExt(handle, M, N, K, &alpha,
+//       descrA, nnzA, csrRowPtrA, csrColIndA,
+//       descrB, nnzB, csrRowPtrB, csrColIndB,
+//       &beta,
+//       descrD, nnzD, csrRowPtrD, csrColIndD,
+//       info,
+//       &bufferSize);
+//
+//   printf("MultMatrices11\n");
+//
+//   cudaMallocManaged(&buffer, bufferSize);
+//
+//   printf("MultMatrices12\n");
+//
+//   // step 3: compute csrRowPtrC
+//   int *csrRowPtrC;
+//   cudaMallocManaged((void**)&csrRowPtrC, sizeof(int)*(M+1));
+//
+//   printf("MultMatrices13\n");
+//
+//   cusparseXcsrgemm2Nnz(handle, M, N, K,
+//           descrA, nnzA, csrRowPtrA, csrColIndA,
+//           descrB, nnzB, csrRowPtrB, csrColIndB,
+//           descrD, nnzD, csrRowPtrD, csrColIndD,
+//           descrC, csrRowPtrC, nnzTotalDevHostPtr,
+//           info, buffer);
+//
+//   printf("MultMatrices14\n");
+//
+//   if (NULL != nnzTotalDevHostPtr)
+//   {
+//       nnzC = *nnzTotalDevHostPtr;
+//   }
+//   else
+//   {
+//       cudaMemcpy(&nnzC, csrRowPtrC+M, sizeof(int), cudaMemcpyDeviceToHost);
+//       cudaMemcpy(&baseC, csrRowPtrC, sizeof(int), cudaMemcpyDeviceToHost);
+//       nnzC -= baseC;
+//   }
+//
+//   printf("MultMatrices15\n");
+//
+//   int *csrColIndC;
+//   cudaMallocManaged((void**)&csrColIndC, sizeof(int)*nnzC);
+//   float *csrValC;
+//   cudaMallocManaged((void**)&csrValC, sizeof(float)*nnzC);
+//
+//   printf("MultMatrices16\n");
+//
+//   cusparseScsrgemm2(handle, M, N, K, &alpha,
+//           descrA, nnzA, csrValA, csrRowPtrA, csrColIndA,
+//           descrB, nnzB, csrValB, csrRowPtrB, csrColIndB,
+//           &beta,
+//           descrD, nnzD, csrValD, csrRowPtrD, csrColIndD,
+//           descrC, csrValC, csrRowPtrC, csrColIndC,
+//           info, buffer);
+//
+//   printf("MultMatrices17\n");
+//
+//   cusparseScsr2dense(handle, M, N, descrC, csrValC, csrRowPtrC, csrColIndC, d_C_dense, M);
+//   cudaFree(D);
+//   cudaFree(buffer);
+//   cudaFree(nnzPerVectorA);
+//   cudaFree(nnzPerVectorB);
+//   cudaFree(nnzPerVectorD);
+//   cudaFree(csrValA);
+//   cudaFree(csrValB);
+//   cudaFree(csrValC);
+//   cudaFree(csrValD);
+//   cudaFree(csrRowPtrA);
+//   cudaFree(csrRowPtrB);
+//   cudaFree(csrRowPtrC);
+//   cudaFree(csrRowPtrD);
+//   cudaFree(csrColIndA);
+//   cudaFree(csrColIndB);
+//   cudaFree(csrColIndC);
+//   cudaFree(csrColIndD);
+//
+//   printf("MultMatrices18\n");
+//
+//   cudaMemcpy(C, d_C_dense, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+//
+//   printf("MultMatrices19\n");
+//
+//   cudaFree(d_C_dense);
+//   cusparseDestroyCsrgemm2Info(info);
+//   cusparseDestroyMatDescr(descrA);
+//   cusparseDestroyMatDescr(descrB);
+//   cusparseDestroyMatDescr(descrC);
+//   cusparseDestroyMatDescr(descrD);
+//   cusparseDestroy(handle);
+//
+//   printf("MultMatrices20\n");
+// }
+
+// void multMatrices(float* a, long m, long k, float* b, long n, float* c, int numGPUs)
+// {
+//   cublasXtHandle_t handle;
+//   cublasXtCreate(&handle);
+//   int devices[] = {0};
+//   if(cublasXtDeviceSelect(handle, 1, devices) != CUBLAS_STATUS_SUCCESS)
+//   {
+//     printf("set devices fail\n");
+//     exit(-1);
+//   }
+//   // int* devices = (int*) malloc(sizeof(int)*numGPUs);
+//   // for(int i=0; i<numGPUs; i++)
+//   //   devices[i] = i;
+//   // int   devices[]
+//   // int contadorDeIntentos = 0;
+//   // int numLocalGPUs = numGPUs;
+//   // while(cublasXtDeviceSelect(handle, numLocalGPUs, devices) != CUBLAS_STATUS_SUCCESS)
+//   // {
+//   //   printf("set devices fail\n");
+//   //   contadorDeIntentos++;
+//   //   if(contadorDeIntentos == 20)
+//   //   {
+//   //     printf("No se ha logrado ejecutar mult con %d GPUs.\n", numLocalGPUs);
+//   //     contadorDeIntentos = 0;
+//   //     numLocalGPUs--;
+//   //     if(numLocalGPUs == 0)
+//   //     {
+//   //       printf("No se ha conseguido usar ni una sola GPU.\n");
+//   //       exit(-1);
+//   //     }
+//   //     devices = (int*) realloc(devices, sizeof(int)*numLocalGPUs);
+//   //     printf("Reintentando mult con %d GPUs.\n", numLocalGPUs);
+//   //   }
+//   // }
+//   float al = 1.0;
+//   float bet = 0.0;
+//   cublasXtSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
+//   cudaDeviceSynchronize();
+//   for(long i=0; i<m*n;i++)
+//   {
+//     if(isnan(c[i]))
+//     {
+//       printf("Valor nan encontrado en multMatrices.\n");
+//       break;
+//     }
+//   }
+//   cublasXtDestroy(handle);
+//   // free(devices);
+// }
+
+// void multMatrices(float* a, long m, long k, float* b, long n, float* c, int numGPUs)
+// {
 //   cublasHandle_t handle;
-//   stat = cublasCreate(&handle);
+//   cudaSetDevice(1);
+//   cublasCreate(&handle);
 //   float al = 1.0;
 //   float bet = 1.0;
-//   stat = cublasSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
+//   cublasSgemm(handle,CUBLAS_OP_N,CUBLAS_OP_N,m,n,k,&al,a,m,b,k,&bet,c,m);
 //   cudaDeviceSynchronize();
 //   for(long i=0; i<m*n;i++)
 //   {
@@ -683,40 +958,40 @@ void calcularInvFrac2(float* matrizA, long cantFilasMatrizA, long cantColumnasMa
 
 void calVisModelo(float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, float* visModelo_paso3, int numGPUs)
 {
-  printf("VisModelo1\n");
+  // printf("VisModelo1\n");
   float* MU_T;
   cudaMallocManaged(&MU_T, cantFilasMV*cantColumnasMU*sizeof(float));
-  printf("VisModelo2\n");
+  // printf("VisModelo2\n");
   transponerMatriz(MU, cantFilasMV, cantColumnasMU, MU_T);
-  printf("VisModelo3\n");
+  // printf("VisModelo3\n");
   float* visModelo_paso1;
   cudaMallocManaged(&visModelo_paso1, cantColumnasMV*cantFilasMV*sizeof(float));
-  printf("VisModelo4\n");
+  // printf("VisModelo4\n");
   cudaMemset(visModelo_paso1, 0, cantColumnasMV*cantFilasMV*sizeof(float));
-  printf("VisModelo5\n");
+  // printf("VisModelo5\n");
   multMatrices(MC, cantColumnasMV, cantColumnasMU, MU_T, cantFilasMV, visModelo_paso1, numGPUs);
-  printf("VisModelo6\n");
+  // printf("VisModelo6\n");
   cudaFree(MU_T);
-  printf("VisModelo7\n");
+  // printf("VisModelo7\n");
   float* transpuesta;
   cudaMallocManaged(&transpuesta, cantColumnasMV*cantFilasMV*sizeof(float));
-  printf("VisModelo8\n");
+  // printf("VisModelo8\n");
   transponerMatriz(visModelo_paso1, cantColumnasMV, cantFilasMV, transpuesta);
-  printf("VisModelo9\n");
+  // printf("VisModelo9\n");
   cudaFree(visModelo_paso1);
-  printf("VisModelo10\n");
+  // printf("VisModelo10\n");
   float* visModelo_paso2;
   cudaMallocManaged(&visModelo_paso2, cantFilasMV*cantColumnasMV*sizeof(float));
-  printf("VisModelo11\n");
+  // printf("VisModelo11\n");
   hadamardProduct(MV, cantFilasMV, cantColumnasMV, transpuesta, visModelo_paso2);
-  printf("VisModelo12\n");
+  // printf("VisModelo12\n");
   cudaFree(transpuesta);
-  printf("VisModelo13\n");
+  // printf("VisModelo13\n");
   long uno = 1;
   multMatrices(visModelo_paso2, cantFilasMV, cantColumnasMV, matrizDeUnosTamN, uno, visModelo_paso3, numGPUs);
-  printf("VisModelo14\n");
+  // printf("VisModelo14\n");
   cudaFree(visModelo_paso2);
-  printf("VisModelo15\n");
+  // printf("VisModelo15\n");
 }
 
 float* calResidual(float* visObs, float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, int tamBloque, int numGPUs)
@@ -1105,14 +1380,14 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
   calGradiente(residualInit, MV, cantVisi, N, MU, N, w, gradienteAnterior, numGPUs);
   printf("Saliendo de gradiente\n");
   cudaFree(residualInit);
-  for(int i=0; i<N*N; i++)
-  {
-    if(gradienteAnterior[i] != 0.0)
-    {
-      printf("En la linea %d es %f\n", i, gradienteAnterior[i]);
-    }
-  }
-  exit(-1);
+  // for(int i=0; i<N*N; i++)
+  // {
+  //   if(gradienteAnterior[i] != 0.0)
+  //   {
+  //     printf("En la linea %d es %f\n", i, gradienteAnterior[i]);
+  //   }
+  // }
+  // exit(-1);
   combinacionLinealMatrices(-1.0, gradienteAnterior, N, N, 0.0, pActual, tamBloque, numGPUs);
   float diferenciaDeCosto = 1.0;
   int i = 0;
@@ -1308,13 +1583,13 @@ float calculoDePSNRDeRecorte(float* estimacionFourier_ParteImag, float* estimaci
   return PSNR;
 }
 
-float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, clock_t* tiempoReconsParteImag_MejorCompresion, clock_t* tiempoReconsParteReal_MejorCompresion, clock_t* tiempoTransInver_MejorCompresion, int tamBloque, int numGPUs)
+float* calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, clock_t* tiempoReconsParteImag_MejorCompresion, clock_t* tiempoReconsParteReal_MejorCompresion, clock_t* tiempoTransInver_MejorCompresion, int tamBloque, int numGPUs)
 {
   float cotaMinPSNR = 0.75;
   float cotaMinCompresion = 0.2 * finIntervalo;
-  float* datosDelMin = (float*) malloc(sizeof(float)*4);
+  float* datosDelMin = (float*) malloc(sizeof(float)*8);
   long cantCoefsMejorCompre = 0;
-  char nombreArchivoTXTCompre[] = "compresiones.txt";
+  // char nombreArchivoTXTCompre[] = "compresiones.txt";
   char nombreArchivoDatosMinPSNR[] = "mejorTradeOffPSNRCompre.txt";
   char nombreArchivoCompreImg[] = "compreImg";
   char nombreDatosDeIte[] = "datosDeIte.txt";
@@ -1362,10 +1637,6 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   long iExterno = 0;
   float* cantidadPorcentualDeCoefs = linspace(0.0, largo, largo+1);
   combinacionLinealMatrices(0.0, cantidadPorcentualDeCoefs, largo+1, 1, 1.0/largo, cantidadPorcentualDeCoefs, tamBloque, numGPUs);
-  char* nombreArchivoCompresiones = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreArchivoTXTCompre)+sizeof(char)*4);
-  strcpy(nombreArchivoCompresiones, rutaADirecSec);
-  strcat(nombreArchivoCompresiones, "/");
-  strcat(nombreArchivoCompresiones, nombreArchivoTXTCompre);
   char* nombreArchivoDatosDeIte = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIte)+sizeof(char)*4);
   strcpy(nombreArchivoDatosDeIte, rutaADirecSec);
   strcat(nombreArchivoDatosDeIte, "/");
@@ -1380,6 +1651,7 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   long* cantCoefsUsadas = (long*) calloc(cantParamEvaInfo, sizeof(long));
   float* vectorDePorcenEnergia = (float*) calloc(cantParamEvaInfo, sizeof(float));
   float* vectorDeDifePSNREntrePtosAdya = (float*) calloc(cantParamEvaInfo, sizeof(float));
+  float* porcenPSNRConRespectoTotal = (float*) calloc(cantParamEvaInfo, sizeof(float));
   int flag_inicioDeVentana = 1;
   int cantPtsVentana = 0;
   int inicioDeVentana = 0;
@@ -1399,13 +1671,6 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
       else
       {
         iExterno = i;
-        FILE* archivoDatosDeIte = fopen(nombreArchivoDatosDeIte, "a");
-        fprintf(archivoDatosDeIte, "%f %f %ld %f\n", paramEvaInfo[cantParamEvaInfo-1-j], cantidadPorcentualDeCoefs[i], cantCoefsParaCota, sumador);
-        fclose(archivoDatosDeIte);
-        FILE* archivoDatosDeIteLegible = fopen(nombreArchivoDatosDeIteLegible, "a");
-        fprintf(archivoDatosDeIteLegible, "Del %f%% solicitado, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia.\n", paramEvaInfo[cantParamEvaInfo-1-j] * 100, cantidadPorcentualDeCoefs[i] * 100, cantCoefsParaCota, sumador * 100);
-        fclose(archivoDatosDeIteLegible);
-        printf("Del %f%% solicitado, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia.\n", paramEvaInfo[cantParamEvaInfo-1-j] * 100, cantidadPorcentualDeCoefs[i] * 100, cantCoefsParaCota, sumador * 100);
         break;
       }
     }
@@ -1421,8 +1686,8 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
       af::array indRepComp = af::constant(0, largo);
       indRepComp(indicesATomar_GPU) = 1;
       indicesATomar_GPU.unlock();
-      af::array MC_imag_GPU(N*N, MC_imag);
-      af::array MC_real_GPU(N*N, MC_real);
+      af::array MC_imag_GPU(largo, MC_imag);
+      af::array MC_real_GPU(largo, MC_real);
       MC_imag_GPU = MC_imag_GPU * indRepComp;
       MC_real_GPU = MC_real_GPU * indRepComp;
       af::eval(MC_imag_GPU);
@@ -1431,9 +1696,9 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
       indRepComp.unlock();
       float* auxiliar_MC_imag_GPU = MC_imag_GPU.device<float>();
       float* auxiliar_MC_real_GPU = MC_real_GPU.device<float>();
-      cudaMemcpy(MC_comp_imag, auxiliar_MC_imag_GPU, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+      cudaMemcpy(MC_comp_imag, auxiliar_MC_imag_GPU, largo*sizeof(float), cudaMemcpyDeviceToHost);
       MC_imag_GPU.unlock();
-      cudaMemcpy(MC_comp_real, auxiliar_MC_real_GPU, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+      cudaMemcpy(MC_comp_real, auxiliar_MC_real_GPU, largo*sizeof(float), cudaMemcpyDeviceToHost);
       MC_real_GPU.unlock();
       float* estimacionFourier_compre_ParteImag = estimacionDePlanoDeFourier(MV_AF, N, N, MC_comp_imag, N, N, MU_AF, numGPUs);
       float* estimacionFourier_compre_ParteReal = estimacionDePlanoDeFourier(MV_AF, N, N, MC_comp_real, N, N, MU_AF, numGPUs);
@@ -1453,14 +1718,27 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
       porcenReal[j] = 1-cantidadPorcentualDeCoefs[iExterno];
       cantCoefsUsadas[j] = cantCoefsParaCota;
       vectorDePorcenEnergia[j] = sumador;
-      FILE* archivoPSNR = fopen(nombreArchivoCompresiones, "a");
-      fprintf(archivoPSNR, "%f %f %f\n", 1-cantidadPorcentualDeCoefs[iExterno], 1-paramEvaInfo[cantParamEvaInfo-1-j], PSNRActual);
-      fclose(archivoPSNR);
       cudaFree(estimacionFourier_compre_ParteImag);
       cudaFree(estimacionFourier_compre_ParteReal);
       free(numComoString);
       free(nombreArchivoReconsImgComp);
     }
+  }
+  float maximoPSNR = 0;
+  for(long j=0; j<cantParamEvaInfo; j++)
+  {
+    if(maximoPSNR < vectorDePSNR[j])
+      maximoPSNR = vectorDePSNR[j];
+  }
+  for(long j=0; j<cantParamEvaInfo; j++)
+  {
+    porcenPSNRConRespectoTotal[j] = vectorDePSNR[j]/maximoPSNR;
+    FILE* archivoDatosDeIte = fopen(nombreArchivoDatosDeIte, "a");
+    fprintf(archivoDatosDeIte, "%.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", abs(porcenIdeal[j]-1), porcenIdeal[j], abs(porcenReal[j]-1), porcenReal[j], cantCoefsUsadas[j], vectorDePorcenEnergia[j], vectorDePSNR[j], porcenPSNRConRespectoTotal[j]);
+    fclose(archivoDatosDeIte);
+    FILE* archivoDatosDeIteLegible = fopen(nombreArchivoDatosDeIteLegible, "a");
+    fprintf(archivoDatosDeIteLegible, "Porcen ideal de coefs: %f, Porcen ideal de compresion: %f, Porcen real de coefs: %f, Porcen real de compresion: %f, Cant de coefs: %ld, Porcen de energia: %f, PSNR: %f, Porcen de PSNR con respecto al total: %f\n", abs(porcenIdeal[j]-1) * 100, porcenIdeal[j] * 100, abs(porcenReal[j]-1) * 100, porcenReal[j] * 100, cantCoefsUsadas[j], vectorDePorcenEnergia[j], vectorDePSNR[j], porcenPSNRConRespectoTotal[j] * 100);
+    fclose(archivoDatosDeIteLegible);
   }
   float* vectorDePSNRFiltrado = (float*) calloc(cantParamEvaInfo, sizeof(float));
   gsl_vector* vectorDePSNREnGSL = gsl_vector_alloc(cantParamEvaInfo);
@@ -1525,17 +1803,22 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   int indiceElegido = vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU[0] + inicioDeVentana - 1;
   // printf("El indice elegido es %d\n", indiceElegido);
   free(vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU);
-  datosDelMin[0] = porcenIdeal[indiceElegido];
-  datosDelMin[1] = porcenReal[indiceElegido];
-  cantCoefsMejorCompre = cantCoefsUsadas[indiceElegido];
-  datosDelMin[2] = vectorDePorcenEnergia[indiceElegido];
-  datosDelMin[3] = vectorDePSNR[indiceElegido];
+  datosDelMin[0] = abs(porcenIdeal[indiceElegido]-1);
+  datosDelMin[1] = porcenIdeal[indiceElegido];
+  datosDelMin[2] = abs(porcenReal[indiceElegido]-1);
+  datosDelMin[3] = porcenReal[indiceElegido];
+  cantCoefsMejorCompre = (int) cantCoefsUsadas[indiceElegido];
+  datosDelMin[4] = cantCoefsUsadas[indiceElegido];
+  datosDelMin[5] = vectorDePorcenEnergia[indiceElegido];
+  datosDelMin[6] = vectorDePSNR[indiceElegido];
+  datosDelMin[7] = porcenPSNRConRespectoTotal[indiceElegido];
   free(vectorDePSNRFiltrado);
   free(porcenIdeal);
   free(porcenReal);
   free(cantCoefsUsadas);
   free(vectorDePorcenEnergia);
   free(vectorDePSNR);
+  free(porcenPSNRConRespectoTotal);
 
 
   char* nombreArchivoMejorCompre = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreArchivoDatosMinPSNR)+sizeof(char)*4);
@@ -1543,9 +1826,8 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   strcat(nombreArchivoMejorCompre, "/");
   strcat(nombreArchivoMejorCompre, nombreArchivoDatosMinPSNR);
   FILE* archivoMejorCompre = fopen(nombreArchivoMejorCompre, "w");
-  fprintf(archivoMejorCompre, "El tradeoff seleccionado con indice %d corresponde al %f%% de coefs, el mas cercano correspondiente al %f%% de coefs, lo que corresponde a %ld coeficientes los cuales poseen el %f%% de la energia y un PSNR de %f.\n", indiceElegido, (1-datosDelMin[0])  * 100, (1-datosDelMin[1])  * 100, cantCoefsMejorCompre, datosDelMin[2]  * 100, datosDelMin[3]);
+  fprintf(archivoMejorCompre, "%.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
   free(nombreArchivoMejorCompre);
-  free(datosDelMin);
   fclose(archivoMejorCompre);
   float* indicesATomar_CPU = (float*) malloc(cantCoefsMejorCompre*sizeof(float));
   for(int k=0; k<cantCoefsMejorCompre; k++)
@@ -1593,10 +1875,9 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   cudaFree(MV_AF);
   free(coefsNormalizados);
   free(MC_modulo_indicesOrde_CPU);
-  free(nombreArchivoCompresiones);
   free(nombreArchivoDatosDeIte);
   free(nombreArchivoDatosDeIteLegible);
-  return cantCoefsMejorCompre;
+  return datosDelMin;
 }
 
 void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque, int numGPUs)
@@ -1748,7 +2029,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  int cantCoefs = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPUs);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPUs);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -1758,8 +2039,8 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   strcat(nombreArchivoInfoComp, "/");
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
   FILE* archivo = fopen(nombreArchivoInfoComp, "a");
-  float nivelDeCompresion = 1.0 - cantCoefs * 1.0 / N*N;
-  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, cantCoefs);
+  float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
+  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, (int) datosDelMin[4]);
   fclose(archivo);
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
@@ -1933,7 +2214,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  int cantCoefs = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPUs);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPUs);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -1943,8 +2224,8 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   strcat(nombreArchivoInfoComp, "/");
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
   FILE* archivo = fopen(nombreArchivoInfoComp, "a");
-  float nivelDeCompresion = 1.0 - cantCoefs * 1.0 / N*N;
-  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, cantCoefs);
+  float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
+  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, (int) datosDelMin[4]);
   fclose(archivo);
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
@@ -2743,233 +3024,16 @@ void filtroGaussiano()
 //   cusparseDestroyCsrgemm2Info(info);
 // }
 
-// void multMatrices(float* A, long M, long K, float* B, long N, float* C)
-// {
-//   printf("MultMatrices1\n");
-//   cusparseHandle_t handle;	cusparseCreate(&handle);
-//   float *d_C_dense;
-//   cudaMallocManaged(&d_C_dense, M*N*sizeof(float));
-//   printf("MultMatrices2\n");
-//
-//   float *D;
-//   cudaMallocManaged(&D, M*N*sizeof(float));
-//   cudaMemset(D, 0, M*N*sizeof(float));
-//   printf("MultMatrices3\n");
-//
-// 	// --- Descriptor for sparse matrix A
-// 	cusparseMatDescr_t descrA;
-//   cusparseCreateMatDescr(&descrA);
-// 	cusparseSetMatType(descrA, CUSPARSE_MATRIX_TYPE_GENERAL);
-// 	cusparseSetMatIndexBase(descrA, CUSPARSE_INDEX_BASE_ONE);
-//
-// 	// --- Descriptor for sparse matrix B
-// 	cusparseMatDescr_t descrB;
-//   cusparseCreateMatDescr(&descrB);
-// 	cusparseSetMatType(descrB, CUSPARSE_MATRIX_TYPE_GENERAL);
-// 	cusparseSetMatIndexBase(descrB, CUSPARSE_INDEX_BASE_ONE);
-//
-// 	// --- Descriptor for sparse matrix C
-// 	cusparseMatDescr_t descrC;
-//   cusparseCreateMatDescr(&descrC);
-// 	cusparseSetMatType(descrC, CUSPARSE_MATRIX_TYPE_GENERAL);
-// 	cusparseSetMatIndexBase(descrC, CUSPARSE_INDEX_BASE_ONE);
-//
-//   // --- Descriptor for sparse matrix D
-//   cusparseMatDescr_t descrD;
-//   cusparseCreateMatDescr(&descrD);
-//   cusparseSetMatType(descrD, CUSPARSE_MATRIX_TYPE_GENERAL);
-//   cusparseSetMatIndexBase(descrD, CUSPARSE_INDEX_BASE_ONE);
-//
-//   int nnzA = 0;							// --- Number of nonzero elements in dense matrix A
-//   int nnzB = 0;							// --- Number of nonzero elements in dense matrix B
-//   int nnzD = 0;							// --- Number of nonzero elements in dense matrix B
-//
-//   const int lda = M;						// --- Leading dimension of dense matrix
-//   const int ldb = K;						// --- Leading dimension of dense matrix
-//   const int ldd = M;						// --- Leading dimension of dense matrix
-//
-//   printf("MultMatrices4\n");
-//
-//   cusparseStatus_t estado;
-//   // --- Device side number of nonzero elements per row of matrix A
-//   int *nnzPerVectorA;
-//   printf("MultMatrices4.1\n");
-//   cudaMallocManaged(&nnzPerVectorA, M * sizeof(*nnzPerVectorA));
-//   printf("MultMatrices4.2\n");
-//   estado = cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, M, K, descrA, A, lda, nnzPerVectorA, &nnzA);
-//   if(estado != CUSPARSE_STATUS_SUCCESS)
-//   {
-//     if(CUSPARSE_STATUS_NOT_INITIALIZED == estado)
-//       printf("CUSPARSE_STATUS_NOT_INITIALIZED\n");
-//     else if(CUSPARSE_STATUS_ALLOC_FAILED == estado)
-//       printf("CUSPARSE_STATUS_ALLOC_FAILED\n");
-//     else if(CUSPARSE_STATUS_INVALID_VALUE == estado)
-//       printf("CUSPARSE_STATUS_INVALID_VALUE\n");
-//     else if(CUSPARSE_STATUS_ARCH_MISMATCH == estado)
-//       printf("CUSPARSE_STATUS_ARCH_MISMATCH\n");
-//     else if(CUSPARSE_STATUS_EXECUTION_FAILED == estado)
-//       printf("CUSPARSE_STATUS_EXECUTION_FAILED\n");
-//     else if(CUSPARSE_STATUS_INTERNAL_ERROR == estado)
-//       printf("CUSPARSE_STATUS_INTERNAL_ERROR\n");
-//     else if(CUSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED == estado)
-//       printf("CUSPARSE_STATUS_MATRIX_TYPE_NOT_SUPPORTED\n");
-//   }
-//   printf("MultMatrices4.3\n");
-//
-//   // --- Device side number of nonzero elements per row of matrix B
-//   int *nnzPerVectorB;
-//   printf("MultMatrices4.4\n");
-//   cudaMallocManaged(&nnzPerVectorB, K * sizeof(*nnzPerVectorB));
-//   printf("MultMatrices4.5\n");
-//   cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, K, N, descrB, B, ldb, nnzPerVectorB, &nnzB);
-//   printf("MultMatrices4.6\n");
-//
-//   // --- Device side number of nonzero elements per row of matrix B
-//   int *nnzPerVectorD;
-//   printf("MultMatrices4.7\n");
-//   cudaMallocManaged(&nnzPerVectorD, M * sizeof(*nnzPerVectorD));
-//   printf("MultMatrices4.8\n");
-//   cusparseSnnz(handle, CUSPARSE_DIRECTION_ROW, M, N, descrD, D, ldd, nnzPerVectorD, &nnzD);
-//
-//   printf("MultMatrices5\n");
-//   // --- Device side sparse matrix
-// 	float *csrValA; cudaMallocManaged(&csrValA, nnzA * sizeof(*csrValA));
-//   float *csrValB; cudaMallocManaged(&csrValB, nnzB * sizeof(*csrValB));
-//   float *csrValD; cudaMallocManaged(&csrValD, nnzD * sizeof(*csrValD));
-//
-//   printf("MultMatrices6\n");
-//
-//   int *csrRowPtrA; cudaMallocManaged(&csrRowPtrA, (M + 1) * sizeof(*csrRowPtrA));
-// 	int *csrRowPtrB; cudaMallocManaged(&csrRowPtrB, (K + 1) * sizeof(*csrRowPtrB));
-//   int *csrRowPtrD; cudaMallocManaged(&csrRowPtrD, (M + 1) * sizeof(*csrRowPtrD));
-// 	int *csrColIndA; cudaMallocManaged(&csrColIndA, nnzA * sizeof(*csrColIndA));
-//   int *csrColIndB; cudaMallocManaged(&csrColIndB, nnzB * sizeof(*csrColIndB));
-//   int *csrColIndD; cudaMallocManaged(&csrColIndD, nnzD * sizeof(*csrColIndD));
-//
-//   printf("MultMatrices7\n");
-//
-//   cusparseSdense2csr(handle, M, K, descrA, A, lda, nnzPerVectorA, csrValA, csrRowPtrA, csrColIndA);
-// 	cusparseSdense2csr(handle, K, N, descrB, B, ldb, nnzPerVectorB, csrValB, csrRowPtrB, csrColIndB);
-//   cusparseSdense2csr(handle, M, N, descrD, D, ldd, nnzPerVectorD, csrValD, csrRowPtrD, csrColIndD);
-//
-//   printf("MultMatrices8\n");
-//
-//   // assume matrices A, B and D are ready.
-//   int baseC, nnzC;
-//   csrgemm2Info_t info = NULL;
-//   size_t bufferSize;
-//   void *buffer = NULL;
-//   // nnzTotalDevHostPtr points to host memory
-//   int *nnzTotalDevHostPtr = &nnzC;
-//   float alpha = 1.0;
-//   float beta  = 1.0;
-//   cusparseSetPointerMode(handle, CUSPARSE_POINTER_MODE_HOST);
-//
-//   printf("MultMatrices9\n");
-//
-//   // step 1: create an opaque structure
-//   cusparseCreateCsrgemm2Info(&info);
-//
-//   printf("MultMatrices10\n");
-//
-//   // step 2: allocate buffer for csrgemm2Nnz and csrgemm2
-//   cusparseScsrgemm2_bufferSizeExt(handle, M, N, K, &alpha,
-//       descrA, nnzA, csrRowPtrA, csrColIndA,
-//       descrB, nnzB, csrRowPtrB, csrColIndB,
-//       &beta,
-//       descrD, nnzD, csrRowPtrD, csrColIndD,
-//       info,
-//       &bufferSize);
-//
-//   printf("MultMatrices11\n");
-//
-//   cudaMallocManaged(&buffer, bufferSize);
-//
-//   printf("MultMatrices12\n");
-//
-//   // step 3: compute csrRowPtrC
-//   int *csrRowPtrC;
-//   cudaMallocManaged((void**)&csrRowPtrC, sizeof(int)*(M+1));
-//
-//   printf("MultMatrices13\n");
-//
-//   cusparseXcsrgemm2Nnz(handle, M, N, K,
-//           descrA, nnzA, csrRowPtrA, csrColIndA,
-//           descrB, nnzB, csrRowPtrB, csrColIndB,
-//           descrD, nnzD, csrRowPtrD, csrColIndD,
-//           descrC, csrRowPtrC, nnzTotalDevHostPtr,
-//           info, buffer);
-//
-//   printf("MultMatrices14\n");
-//
-//   if (NULL != nnzTotalDevHostPtr)
-//   {
-//       nnzC = *nnzTotalDevHostPtr;
-//   }
-//   else
-//   {
-//       cudaMemcpy(&nnzC, csrRowPtrC+M, sizeof(int), cudaMemcpyDeviceToHost);
-//       cudaMemcpy(&baseC, csrRowPtrC, sizeof(int), cudaMemcpyDeviceToHost);
-//       nnzC -= baseC;
-//   }
-//
-//   printf("MultMatrices15\n");
-//
-//   int *csrColIndC;
-//   cudaMallocManaged((void**)&csrColIndC, sizeof(int)*nnzC);
-//   float *csrValC;
-//   cudaMallocManaged((void**)&csrValC, sizeof(float)*nnzC);
-//
-//   printf("MultMatrices16\n");
-//
-//   cusparseScsrgemm2(handle, M, N, K, &alpha,
-//           descrA, nnzA, csrValA, csrRowPtrA, csrColIndA,
-//           descrB, nnzB, csrValB, csrRowPtrB, csrColIndB,
-//           &beta,
-//           descrD, nnzD, csrValD, csrRowPtrD, csrColIndD,
-//           descrC, csrValC, csrRowPtrC, csrColIndC,
-//           info, buffer);
-//
-//   printf("MultMatrices17\n");
-//
-//   cusparseScsr2dense(handle, M, N, descrC, csrValC, csrRowPtrC, csrColIndC, d_C_dense, M);
-//   cudaFree(D);
-//   cudaFree(buffer);
-//   cudaFree(nnzPerVectorA);
-//   cudaFree(nnzPerVectorB);
-//   cudaFree(nnzPerVectorD);
-//   cudaFree(csrValA);
-//   cudaFree(csrValB);
-//   cudaFree(csrValC);
-//   cudaFree(csrValD);
-//   cudaFree(csrRowPtrA);
-//   cudaFree(csrRowPtrB);
-//   cudaFree(csrRowPtrC);
-//   cudaFree(csrRowPtrD);
-//   cudaFree(csrColIndA);
-//   cudaFree(csrColIndB);
-//   cudaFree(csrColIndC);
-//   cudaFree(csrColIndD);
-//
-//   printf("MultMatrices18\n");
-//
-//   cudaMemcpy(C, d_C_dense, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-//
-//   printf("MultMatrices19\n");
-//
-//   cudaFree(d_C_dense);
-//   cusparseDestroyCsrgemm2Info(info);
-//   cusparseDestroyMatDescr(descrA);
-//   cusparseDestroyMatDescr(descrB);
-//   cusparseDestroyMatDescr(descrC);
-//   cusparseDestroyMatDescr(descrD);
-//   cusparseDestroy(handle);
-//
-//   printf("MultMatrices20\n");
-// }
-
 int main()
 {
+
+  // float limitesDeZonas[] = {1, 10, 20, 30, 40, 50};
+  // float cantPuntosPorZona[] = {2, 3, 4};
+  // int cantParesDePuntos = 3;
+  // linspaceNoEquiespaciado(limitesDeZonas, cantPuntosPorZona, cantParesDePuntos);
+  // exit(1);
+
+
   // int M = 1000;
   // int K = 1000;
   // int N = 1000;
@@ -3027,26 +3091,26 @@ int main()
   // long cantVisi = 15034;
   // long inicio = 0;
   // long fin = 15034;
-  //
-  // long cantVisi = 1000000;
-  // long inicio = 0;
-  // long fin = 1000000;
 
-  long cantVisi = 30000;
+  // long cantVisi = 30000;
+  // long inicio = 0;
+  // long fin = 30000;
+
+  long cantVisi = 1000000;
   long inicio = 0;
-  long fin = 30000;
+  long fin = 1000000;
 
   int tamBloque = 1024;
-  int numGPUs = 2;
-  int N = 512;
-  // long N = 1600; //HLTau_B6cont.calavg.tav300s
+  int numGPUs = 4;
+  // int N = 512;
+  long N = 1600; //HLTau_B6cont.calavg.tav300s
   int maxIter = 100;
 
   float tolGrad = 1E-12;
 
   // float delta_x = 0.02;
-  // float delta_x = 0.005; //HLTau_B6cont.calavg.tav300s
-  float delta_x = 0.03; //co65
+  float delta_x = 0.005; //HLTau_B6cont.calavg.tav300s
+  // float delta_x = 0.03; //co65
   float delta_x_rad = (delta_x * M_PI)/648000.0;
   float delta_u = 1.0/(N*delta_x_rad);
   float delta_v = 1.0/(N*delta_x_rad);
@@ -3084,17 +3148,17 @@ int main()
   // char nombreArchivo[] = "./FREQ78.ms";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // // ########### BEAM ##############
-  char nombreArchivo[] = "./co65.ms";
-  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // // // ########### BEAM ##############
+  // char nombreArchivo[] = "./co65.ms";
+  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // // ########### BEAM ##############
   // char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // ########### BEAM ##############
+  char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
+  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // char* comandoScriptMSaTXT = (char*) malloc(strlen(comandoCasaconScript)*strlen(nombreArchivo)*sizeof(char)+sizeof(char)*3);
   // strcpy(comandoScriptMSaTXT, comandoCasaconScript);
