@@ -143,8 +143,6 @@ struct parametros_BaseNormal
   long N;
 };
 
-static int Stopping_Rule(float x0, float x1, float tolerance);
-
 #define sqrt5 2.236067977499789696
 
 char* numAString(int* numero)
@@ -411,22 +409,6 @@ void vectorColumnaAMatriz(float* vectorA, long cantFilas, long cantColumnas, flo
   cudaFree(vectorDeUnos);
 }
 
-__global__ void multMatrizPorConstante_kernel(float* matrizA, long cantFilas, long cantColumnas, float constante)
-{
-  long miId = threadIdx.x + blockDim.x * blockIdx.x;
-  if(miId < cantFilas*cantColumnas)
-  {
-    matrizA[miId] = constante * matrizA[miId];
-  }
-}
-
-void multMatrizPorConstante(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float constante)
-{
-  long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
-  multMatrizPorConstante_kernel<<<cantBloques,1024>>>(matrizA, cantFilasMatrizA, cantColumnasMatrizA, constante);
-  cudaDeviceSynchronize();
-}
-
 __global__ void multMatrizPorConstante_kernel_multiGPU(float* matrizA, long cantFilas, long cantColumnas, float constante, int gpuId)
 {
   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
@@ -436,7 +418,7 @@ __global__ void multMatrizPorConstante_kernel_multiGPU(float* matrizA, long cant
   }
 }
 
-void multMatrizPorConstante2(float* matrizA, long cantFilas, long cantColumnas, float constante, int tamBloque, int numGPUs)
+void multMatrizPorConstante(float* matrizA, long cantFilas, long cantColumnas, float constante, int tamBloque, int numGPUs)
 {
   long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
   #pragma omp parallel num_threads(numGPUs)
@@ -448,21 +430,21 @@ void multMatrizPorConstante2(float* matrizA, long cantFilas, long cantColumnas, 
   cudaDeviceSynchronize();
 }
 
-__global__ void combinacionLinealMatrices_kernel(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
-{
-  long miId = threadIdx.x + blockDim.x * blockIdx.x;
-  if(miId < cantFilas*cantColumnas)
-  {
-    matrizB[miId] = al * matrizA[miId] + bet * matrizB[miId];
-  }
-}
-
-void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
-{
-  long cantBloques = ceil((float) cantFilas*cantColumnas/1024);
-  combinacionLinealMatrices_kernel<<<cantBloques,1024>>>(al, matrizA, cantFilas, cantColumnas, bet, matrizB);
-  cudaDeviceSynchronize();
-}
+// __global__ void combinacionLinealMatrices_kernel(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
+// {
+//   long miId = threadIdx.x + blockDim.x * blockIdx.x;
+//   if(miId < cantFilas*cantColumnas)
+//   {
+//     matrizB[miId] = al * matrizA[miId] + bet * matrizB[miId];
+//   }
+// }
+//
+// void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
+// {
+//   long cantBloques = ceil((float) cantFilas*cantColumnas/1024);
+//   combinacionLinealMatrices_kernel<<<cantBloques,1024>>>(al, matrizA, cantFilas, cantColumnas, bet, matrizB);
+//   cudaDeviceSynchronize();
+// }
 
 __global__ void combinacionLinealMatrices_kernel_multiGPU(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int gpuId)
 {
@@ -473,7 +455,7 @@ __global__ void combinacionLinealMatrices_kernel_multiGPU(float al, float* matri
   }
 }
 
-void combinacionLinealMatrices2(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int tamBloque, int numGPUs)
+void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int tamBloque, int numGPUs)
 {
   long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
   #pragma omp parallel num_threads(numGPUs)
@@ -513,27 +495,6 @@ void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMa
   cudaDeviceSynchronize();
 }
 
-__global__ void restaVectorColumnaConVector_kernel(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, float* resultado)
-{
-  long miId = threadIdx.x + blockDim.x * blockIdx.x;
-  if(miId < largoVectorA*largoVectorB)
-  {
-    long i = miId%largoVectorA;
-    long j = miId/largoVectorA;
-    resultado[miId] = vectorA[i] - vectorB[j];
-  }
-}
-
-float* restaVectorColumnaConVector(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB)
-{
-  float* resultado;
-  cudaMallocManaged(&resultado,largoVectorA*largoVectorB*sizeof(float));
-  long cantBloques = ceil((float) largoVectorA*largoVectorB/1024);
-  restaVectorColumnaConVector_kernel<<<cantBloques,1024>>>(vectorA, largoVectorA, vectorB, largoVectorB, resultado);
-  cudaDeviceSynchronize();
-  return resultado;
-}
-
 __global__ void restaVectorColumnaConVector_kernel_multiGPU(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, float* resultado, int gpuId)
 {
   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
@@ -545,7 +506,7 @@ __global__ void restaVectorColumnaConVector_kernel_multiGPU(float* vectorA, long
   }
 }
 
-float* restaVectorColumnaConVector2(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, int tamBloque, int numGPUs)
+float* restaVectorColumnaConVector(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, int tamBloque, int numGPUs)
 {
   float* resultado;
   cudaMallocManaged(&resultado,largoVectorA*largoVectorB*sizeof(float));
@@ -758,18 +719,18 @@ void calVisModelo(float* MV, long cantFilasMV, long cantColumnasMV, float* MC, l
   printf("VisModelo15\n");
 }
 
-float* calResidual(float* visObs, float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, int numGPUs)
+float* calResidual(float* visObs, float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, int tamBloque, int numGPUs)
 {
-  printf("Residual1\n");
+  // printf("Residual1\n");
   float* visModelo;
   cudaMallocManaged(&visModelo, cantFilasMV*sizeof(float));
-  printf("Residual2\n");
+  // printf("Residual2\n");
   cudaMemset(visModelo, 0, cantFilasMV*sizeof(float));
-  printf("Residual3\n");
+  // printf("Residual3\n");
   calVisModelo(MV, cantFilasMV, cantColumnasMV, MC, cantColumnasMU, MU, matrizDeUnosTamN, visModelo, numGPUs);
-  printf("Residual4\n");
-  combinacionLinealMatrices(-1.0, visObs, cantFilasMV, 1, 1.0, visModelo);
-  printf("Residual5\n");
+  // printf("Residual4\n");
+  combinacionLinealMatrices(-1.0, visObs, cantFilasMV, 1, 1.0, visModelo, tamBloque, numGPUs);
+  // printf("Residual5\n");
   return visModelo;
 }
 
@@ -800,12 +761,12 @@ void calGradiente(float* residual, float* MV, long cantFilasMV, long cantColumna
   cudaFree(total_paso1_5);
 }
 
-float calAlpha(float* gradiente, long cantFilasMC, long cantColumnasMC, float* pActual, float* MV, long cantFilasMV, long cantColumnasMV, float* MU, long cantColumnasMU, float* w, float* matrizDeUnosTamN, int* flag_NOESPOSIBLEMINIMIZAR, int numGPUs)
+float calAlpha(float* gradiente, long cantFilasMC, long cantColumnasMC, float* pActual, float* MV, long cantFilasMV, long cantColumnasMV, float* MU, long cantColumnasMU, float* w, float* matrizDeUnosTamN, int* flag_NOESPOSIBLEMINIMIZAR, int tamBloque, int numGPUs)
 {
   float* gradienteNegativo;
   cudaMallocManaged(&gradienteNegativo, cantFilasMC*cantColumnasMC*sizeof(float));
   cudaMemset(gradienteNegativo, 0, cantFilasMC*cantColumnasMC*sizeof(float));
-  combinacionLinealMatrices(-1.0, gradiente, cantFilasMC, cantColumnasMC, 0.0, gradienteNegativo);
+  combinacionLinealMatrices(-1.0, gradiente, cantFilasMC, cantColumnasMC, 0.0, gradienteNegativo, tamBloque, numGPUs);
   float numerador = dotProduct(gradienteNegativo, cantFilasMC*cantColumnasMC, pActual);
   cudaFree(gradienteNegativo);
   float* visModeloP;
@@ -960,7 +921,7 @@ void escribirTransformadaInversaFourier2D(float* estimacionFourier_ParteImag, fl
   free(inver_visi);
 }
 
-float* calcularMV_Rect(float* v, float delta_v, long cantVisi, long N, float estrechezDeBorde, float ancho, float* matrizDeUnos)
+float* calcularMV_Rect(float* v, float delta_v, long cantVisi, long N, float estrechezDeBorde, float ancho, float* matrizDeUnos, int tamBloque, int numGPUs)
 {
   float* desplazamientoEnV = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
   float* primeraFraccionV;
@@ -972,40 +933,40 @@ float* calcularMV_Rect(float* v, float delta_v, long cantVisi, long N, float est
   {
     segundaFraccionV[i] = 1.0;
   }
-  float* matrizDiferenciaV = restaVectorColumnaConVector(v, cantVisi, desplazamientoEnV, N);
+  float* matrizDiferenciaV = restaVectorColumnaConVector(v, cantVisi, desplazamientoEnV, N, tamBloque, numGPUs);
   cudaFree(desplazamientoEnV);
-  combinacionLinealMatrices(-1.0 * estrechezDeBorde, matrizDiferenciaV, cantVisi, N, 0.0, primeraFraccionV);
-  combinacionLinealMatrices(estrechezDeBorde, matrizDiferenciaV, cantVisi, N, -1 * estrechezDeBorde * ancho, segundaFraccionV);
+  combinacionLinealMatrices(-1.0 * estrechezDeBorde, matrizDiferenciaV, cantVisi, N, 0.0, primeraFraccionV, tamBloque, numGPUs);
+  combinacionLinealMatrices(estrechezDeBorde, matrizDiferenciaV, cantVisi, N, -1 * estrechezDeBorde * ancho, segundaFraccionV, tamBloque, numGPUs);
   cudaFree(matrizDiferenciaV);
   calcularExp(primeraFraccionV, cantVisi, N);
   calcularExp(segundaFraccionV, cantVisi, N);
-  combinacionLinealMatrices(1.0, matrizDeUnos, cantVisi, N, 1.0, primeraFraccionV);
-  combinacionLinealMatrices(1.0, matrizDeUnos, cantVisi, N, 1.0, segundaFraccionV);
+  combinacionLinealMatrices(1.0, matrizDeUnos, cantVisi, N, 1.0, primeraFraccionV, tamBloque, numGPUs);
+  combinacionLinealMatrices(1.0, matrizDeUnos, cantVisi, N, 1.0, segundaFraccionV, tamBloque, numGPUs);
   calcularInvFrac(primeraFraccionV, cantVisi, N);
   calcularInvFrac(segundaFraccionV, cantVisi, N);
   float* MV;
   cudaMallocManaged(&MV, cantVisi * N * sizeof(float));
   for(long i=0; i<(cantVisi*N); i++)
   {
-    MV[i] = 1.0;
+    MV[i] = 1.0/ancho;
   }
-  combinacionLinealMatrices(1.0, primeraFraccionV, cantVisi, N, 1.0, segundaFraccionV);
+  combinacionLinealMatrices(1.0, primeraFraccionV, cantVisi, N, 1.0, segundaFraccionV, tamBloque, numGPUs);
   cudaFree(primeraFraccionV);
-  combinacionLinealMatrices(1.0, segundaFraccionV, cantVisi, N, -1.0, MV);
+  combinacionLinealMatrices(1.0/ancho, segundaFraccionV, cantVisi, N, -1.0, MV, tamBloque, numGPUs);
   cudaFree(segundaFraccionV);
   return MV;
 }
 
-float* calcularMV_Rect_estFourier(float ancho, long N, float delta_v, float* matrizDeUnos, float estrechezDeBorde, float* matrizDeUnosEstFourier)
+float* calcularMV_Rect_estFourier(float ancho, long N, float delta_v, float* matrizDeUnos, float estrechezDeBorde, float* matrizDeUnosEstFourier, int tamBloque, int numGPUs)
 {
   float* coordenadasVCentrosCeldas = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
-  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas);
-  float* MV_AF = calcularMV_Rect(coordenadasVCentrosCeldas, delta_v, N, N, estrechezDeBorde, ancho, matrizDeUnos);
+  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPUs);
+  float* MV_AF = calcularMV_Rect(coordenadasVCentrosCeldas, delta_v, N, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPUs);
   cudaFree(coordenadasVCentrosCeldas);
   return MV_AF;
 }
 
-float* calcularMV_Normal(float* v, float delta_v, long cantVisi, long N, float anchoV)
+float* calcularMV_Normal(float* v, float delta_v, long cantVisi, long N, float anchoV, int tamBloque, int numGPUs)
 {
   float* CV;
   cudaMallocManaged(&CV, N * sizeof(float));
@@ -1014,15 +975,15 @@ float* calcularMV_Normal(float* v, float delta_v, long cantVisi, long N, float a
     CV[i] = 0.5 * delta_v;
   }
   float* CV_sinescalar = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
-  combinacionLinealMatrices(1.0, CV_sinescalar, N, 1, 1.0, CV);
+  combinacionLinealMatrices(1.0, CV_sinescalar, N, 1, 1.0, CV, tamBloque, numGPUs);
   cudaFree(CV_sinescalar);
-  float* MV = restaVectorColumnaConVector(v, cantVisi, CV, N);
+  float* MV = restaVectorColumnaConVector(v, cantVisi, CV, N, tamBloque, numGPUs);
   cudaFree(CV);
-  multMatrizPorConstante(MV, cantVisi, N, 1.0/anchoV);
+  multMatrizPorConstante(MV, cantVisi, N, 1.0/anchoV, tamBloque, numGPUs);
   hadamardProduct(MV, cantVisi, N, MV, MV);
-  multMatrizPorConstante(MV, cantVisi, N, -0.5);
+  multMatrizPorConstante(MV, cantVisi, N, -0.5, tamBloque, numGPUs);
   calcularExp(MV, cantVisi, N);
-  multMatrizPorConstante(MV, cantVisi, N, 1.0/sqrt(2.0 * M_PI * anchoV * anchoV));
+  multMatrizPorConstante(MV, cantVisi, N, 1.0/sqrt(2.0 * M_PI * anchoV * anchoV), tamBloque, numGPUs);
   return MV;
 }
 
@@ -1048,16 +1009,16 @@ float* calcularMV_Normal(float* v, float delta_v, long cantVisi, long N, float a
 //   return MV;
 // }
 
-float* calcularMV_Normal_estFourier(float anchoV, long N, float delta_v, float* matrizDeUnosEstFourier)
+float* calcularMV_Normal_estFourier(float anchoV, long N, float delta_v, float* matrizDeUnosEstFourier, int tamBloque, int numGPUs)
 {
   float* coordenadasVCentrosCeldas = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
-  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas);
-  float* MV_AF = calcularMV_Normal(coordenadasVCentrosCeldas, delta_v, N, N, anchoV);
+  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPUs);
+  float* MV_AF = calcularMV_Normal(coordenadasVCentrosCeldas, delta_v, N, N, anchoV, tamBloque, numGPUs);
   cudaFree(coordenadasVCentrosCeldas);
   return MV_AF;
 }
 
-int calCompresionSegunCota(char* nombreArCoef_comp_imag, char* nombreArCoef_comp_real, float* MC_imag, float* MC_imag_comp, float* MC_real, float* MC_real_comp, long cantFilas, long cantColumnas, float cotaEnergia)
+int calCompresionSegunCota(char* nombreArCoef_comp_imag, char* nombreArCoef_comp_real, float* MC_imag, float* MC_imag_comp, float* MC_real, float* MC_real_comp, long cantFilas, long cantColumnas, float cotaEnergia, int tamBloque, int numGPUs)
 {
   long largo = cantFilas * cantColumnas;
   float* MC_img_cuadrado;
@@ -1066,7 +1027,7 @@ int calCompresionSegunCota(char* nombreArCoef_comp_imag, char* nombreArCoef_comp
   cudaMallocManaged(&MC_modulo, cantFilas*cantColumnas*sizeof(float));
   hadamardProduct(MC_imag, cantFilas, cantColumnas, MC_imag, MC_img_cuadrado);
   hadamardProduct(MC_real, cantFilas, cantColumnas, MC_real, MC_modulo);
-  combinacionLinealMatrices(1.0, MC_img_cuadrado, cantFilas, cantColumnas, 1.0, MC_modulo);
+  combinacionLinealMatrices(1.0, MC_img_cuadrado, cantFilas, cantColumnas, 1.0, MC_modulo, tamBloque, numGPUs);
   cudaFree(MC_img_cuadrado);
   af::array MC_modulo_GPU(cantFilas*cantColumnas, MC_modulo);
   af::array MC_modulo_indicesOrde_GPU(cantFilas*cantColumnas);
@@ -1119,14 +1080,14 @@ int calCompresionSegunCota(char* nombreArCoef_comp_imag, char* nombreArCoef_comp
   return cantCoefsParaCota;
 }
 
-float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombreArchivoCoefs, float* MV, float* MU, float* visibilidades, float* w, long cantVisi, long N, float* matrizDeUnosTamN, int maxIter, float tol, int numGPUs)
+float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombreArchivoCoefs, float* MV, float* MU, float* visibilidades, float* w, long cantVisi, long N, float* matrizDeUnosTamN, int maxIter, float tol, int tamBloque, int numGPUs)
 {
   int flag_NOESPOSIBLEMINIMIZAR = 0;
   float* MC;
   cudaMallocManaged(&MC, N*N*sizeof(float));
   cudaMemset(MC, 0, N*N*sizeof(float));
   printf("Entrando a residual\n");
-  float* residualInit = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, numGPUs);
+  float* residualInit = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
   printf("Saliendo de residual\n");
   float* gradienteActual;
   cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
@@ -1152,7 +1113,7 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
     }
   }
   exit(-1);
-  combinacionLinealMatrices(-1.0, gradienteAnterior, N, N, 0.0, pActual);
+  combinacionLinealMatrices(-1.0, gradienteAnterior, N, N, 0.0, pActual, tamBloque, numGPUs);
   float diferenciaDeCosto = 1.0;
   int i = 0;
   float alpha = 0.0;
@@ -1166,20 +1127,20 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
   }
   while(maxIter > i && 2.0 * diferenciaDeCosto > tol * normalizacion)
   {
-    alpha = calAlpha(gradienteAnterior, N, N, pActual, MV, cantVisi, N, MU, N, w, matrizDeUnosTamN, &flag_NOESPOSIBLEMINIMIZAR, numGPUs);
+    alpha = calAlpha(gradienteAnterior, N, N, pActual, MV, cantVisi, N, MU, N, w, matrizDeUnosTamN, &flag_NOESPOSIBLEMINIMIZAR, tamBloque, numGPUs);
     if(flag_NOESPOSIBLEMINIMIZAR == 1)
     {
       break;
     }
-    combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC);
-    float* residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, numGPUs);
+    combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC, tamBloque, numGPUs);
+    float* residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
     costoActual = calCosto(residual, cantVisi, w);
     cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
     cudaMemset(gradienteActual, 0, N*N*sizeof(float));
     calGradiente(residual, MV, cantVisi, N, MU, N, w, gradienteActual, numGPUs);
     cudaFree(residual);
     float beta = calBeta_Fletcher_Reeves(gradienteActual, N*N, gradienteAnterior);
-    combinacionLinealMatrices(-1.0, gradienteActual, N, N, beta, pActual);
+    combinacionLinealMatrices(-1.0, gradienteActual, N, N, beta, pActual, tamBloque, numGPUs);
     diferenciaDeCosto = abs(costoAnterior - costoActual);
     normalizacion = costoAnterior + costoActual + epsilon;
     float otro = costoActual - costoAnterior;
@@ -1198,13 +1159,13 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
   return MC;
 }
 
-float* minGradConjugado_MinCuadra(float* MV, float* MU, float* visibilidades, float* w, long cantVisi, long N, float* matrizDeUnosTamN, int maxIter, float tol, int numGPUs)
+float* minGradConjugado_MinCuadra(float* MV, float* MU, float* visibilidades, float* w, long cantVisi, long N, float* matrizDeUnosTamN, int maxIter, float tol, int tamBloque, int numGPUs)
 {
   int flag_NOESPOSIBLEMINIMIZAR = 0;
   float* MC;
   cudaMallocManaged(&MC, N*N*sizeof(float));
   cudaMemset(MC, 0, N*N*sizeof(float));
-  float* residualInit = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, numGPUs);
+  float* residualInit = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
   float* gradienteActual;
   cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
   cudaMemset(gradienteActual, 0, N*N*sizeof(float));
@@ -1219,7 +1180,7 @@ float* minGradConjugado_MinCuadra(float* MV, float* MU, float* visibilidades, fl
   float costoActual = costoInicial;
   calGradiente(residualInit, MV, cantVisi, N, MU, N, w, gradienteAnterior, numGPUs);
   cudaFree(residualInit);
-  combinacionLinealMatrices(-1.0, gradienteAnterior, N, N, 0.0, pActual);
+  combinacionLinealMatrices(-1.0, gradienteAnterior, N, N, 0.0, pActual, tamBloque, numGPUs);
   float diferenciaDeCosto = 1.0;
   int i = 0;
   float alpha = 0.0;
@@ -1227,20 +1188,20 @@ float* minGradConjugado_MinCuadra(float* MV, float* MU, float* visibilidades, fl
   float normalizacion = costoAnterior + costoActual + epsilon;
   while(maxIter > i && 2.0 * diferenciaDeCosto > tol * normalizacion)
   {
-    alpha = calAlpha(gradienteAnterior, N, N, pActual, MV, cantVisi, N, MU, N, w, matrizDeUnosTamN, &flag_NOESPOSIBLEMINIMIZAR, numGPUs);
+    alpha = calAlpha(gradienteAnterior, N, N, pActual, MV, cantVisi, N, MU, N, w, matrizDeUnosTamN, &flag_NOESPOSIBLEMINIMIZAR, tamBloque, numGPUs);
     if(flag_NOESPOSIBLEMINIMIZAR == 1)
     {
       break;
     }
-    combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC);
-    float* residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, numGPUs);
+    combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC, tamBloque, numGPUs);
+    float* residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
     costoActual = calCosto(residual, cantVisi, w);
     cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
     cudaMemset(gradienteActual, 0, N*N*sizeof(float));
     calGradiente(residual, MV, cantVisi, N, MU, N, w, gradienteActual, numGPUs);
     cudaFree(residual);
     float beta = calBeta_Fletcher_Reeves(gradienteActual, N*N, gradienteAnterior);
-    combinacionLinealMatrices(-1.0, gradienteActual, N, N, beta, pActual);
+    combinacionLinealMatrices(-1.0, gradienteActual, N, N, beta, pActual, tamBloque, numGPUs);
     diferenciaDeCosto = abs(costoAnterior - costoActual);
     normalizacion = costoAnterior + costoActual + epsilon;
     float otro = costoActual - costoAnterior;
@@ -1321,9 +1282,6 @@ float calculoDePSNRDeRecorte(float* estimacionFourier_ParteImag, float* estimaci
   float desvEstandar = calculateSD(elementosExternos, mediaExterna, contadorEleExternos);
   free(elementosExternos);
   float PSNR = maximoValorInterno/desvEstandar;
-  // printf("El contador es %d\n", contador);
-  // printf("La wea total es %d\n", cantFilasARecorrer*cantColumnasARecorrer);
-  // printf("La cantidad de elementos externos es %d\n", contadorEleExternos);
 
   fitsfile *fptr;
   int status;
@@ -1350,7 +1308,7 @@ float calculoDePSNRDeRecorte(float* estimacionFourier_ParteImag, float* estimaci
   return PSNR;
 }
 
-float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, clock_t* tiempoReconsParteImag_MejorCompresion, clock_t* tiempoReconsParteReal_MejorCompresion, clock_t* tiempoTransInver_MejorCompresion, int numGPUs)
+float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, clock_t* tiempoReconsParteImag_MejorCompresion, clock_t* tiempoReconsParteReal_MejorCompresion, clock_t* tiempoTransInver_MejorCompresion, int tamBloque, int numGPUs)
 {
   float cotaMinPSNR = 0.75;
   float cotaMinCompresion = 0.2 * finIntervalo;
@@ -1378,7 +1336,7 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   cudaMallocManaged(&MC_modulo, N*N*sizeof(float));
   hadamardProduct(MC_imag, N, N, MC_imag, MC_img_cuadrado);
   hadamardProduct(MC_real, N, N, MC_real, MC_modulo);
-  combinacionLinealMatrices(1.0, MC_img_cuadrado, N, N, 1.0, MC_modulo);
+  combinacionLinealMatrices(1.0, MC_img_cuadrado, N, N, 1.0, MC_modulo, tamBloque, numGPUs);
   cudaFree(MC_img_cuadrado);
   af::array MC_modulo_GPU(N*N, MC_modulo);
   cudaFree(MC_modulo);
@@ -1403,7 +1361,7 @@ float calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo, 
   float sumador = 0.0;
   long iExterno = 0;
   float* cantidadPorcentualDeCoefs = linspace(0.0, largo, largo+1);
-  combinacionLinealMatrices(0.0, cantidadPorcentualDeCoefs, largo+1, 1, 1.0/largo, cantidadPorcentualDeCoefs);
+  combinacionLinealMatrices(0.0, cantidadPorcentualDeCoefs, largo+1, 1, 1.0/largo, cantidadPorcentualDeCoefs, tamBloque, numGPUs);
   char* nombreArchivoCompresiones = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreArchivoTXTCompre)+sizeof(char)*4);
   strcpy(nombreArchivoCompresiones, rutaADirecSec);
   strcat(nombreArchivoCompresiones, "/");
@@ -1666,7 +1624,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   printf("...Comenzando calculo de MV...\n");
   clock_t tiempoCalculoMV;
   tiempoCalculoMV = clock();
-  float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, ancho);
+  float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, ancho, tamBloque, numGPUs);
   tiempoCalculoMV = clock() - tiempoCalculoMV;
   float tiempoTotalCalculoMV = ((float)tiempoCalculoMV)/CLOCKS_PER_SEC;
   printf("Calculo de MV completado.\n");
@@ -1674,7 +1632,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
    printf("...Comenzando calculo de MU...\n");
   clock_t tiempoCalculoMU;
   tiempoCalculoMU = clock();
-  float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, ancho);
+  float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, ancho, tamBloque, numGPUs);
   tiempoCalculoMU = clock() - tiempoCalculoMU;
   float tiempoTotalCalculoMU = ((float)tiempoCalculoMU)/CLOCKS_PER_SEC;
   printf("Calculo de MU completado.\n");
@@ -1702,7 +1660,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   printf("...Comenzando minimizacion de coeficientes parte imaginaria...\n");
   clock_t tiempoMinPartImag;
   tiempoMinPartImag = clock();
-  float* MC_imag = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_imag, nombreArchivoCoefs_imag, MV, MU, visi_parteImaginaria, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, numGPUs);
+  float* MC_imag = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_imag, nombreArchivoCoefs_imag, MV, MU, visi_parteImaginaria, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, tamBloque, numGPUs);
   tiempoMinPartImag = clock() - tiempoMinPartImag;
   float tiempoTotalMinPartImag = ((float)tiempoMinPartImag)/CLOCKS_PER_SEC;
   printf("Proceso de minimizacion de coeficientes parte imaginaria terminado.\n");
@@ -1720,7 +1678,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   printf("...Comenzando minimizacion de coeficientes parte real...\n");
   clock_t tiempoMinPartReal;
   tiempoMinPartReal = clock();
-  float* MC_real = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_real, nombreArchivoCoefs_real, MV, MU, visi_parteReal, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, numGPUs);
+  float* MC_real = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_real, nombreArchivoCoefs_real, MV, MU, visi_parteReal, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, tamBloque, numGPUs);
   tiempoMinPartReal = clock() - tiempoMinPartReal;
   float tiempoTotalMinPartReal = ((float)tiempoMinPartReal)/CLOCKS_PER_SEC;
   printf("Proceso de minimizacion de coeficientes parte real terminado.\n");
@@ -1744,12 +1702,12 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   strcat(nombreArchivoReconsImg, nombreArReconsImg);
   clock_t tiempoCalculoMV_AF;
   tiempoCalculoMV_AF = clock();
-  float* MV_AF = calcularMV_Normal_estFourier(ancho, N, delta_v, matrizDeUnosTamN);
+  float* MV_AF = calcularMV_Normal_estFourier(ancho, N, delta_v, matrizDeUnosTamN, tamBloque, numGPUs);
   tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
   float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
   clock_t tiempoCalculoMU_AF;
   tiempoCalculoMU_AF = clock();
-  float* MU_AF = calcularMV_Normal_estFourier(ancho, N, delta_u, matrizDeUnosTamN);
+  float* MU_AF = calcularMV_Normal_estFourier(ancho, N, delta_u, matrizDeUnosTamN, tamBloque, numGPUs);
   tiempoCalculoMU_AF = clock() - tiempoCalculoMU_AF;
   float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
   clock_t tiempoReconsFourierPartImag;
@@ -1790,7 +1748,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  int cantCoefs = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, numGPUs);
+  int cantCoefs = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPUs);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -1851,7 +1809,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   printf("...Comenzando calculo de MV...\n");
   clock_t tiempoCalculoMV;
   tiempoCalculoMV = clock();
-  float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos);
+  float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPUs);
   tiempoCalculoMV = clock() - tiempoCalculoMV;
   float tiempoTotalCalculoMV = ((float)tiempoCalculoMV)/CLOCKS_PER_SEC;
   printf("Calculo de MV completado.\n");
@@ -1859,7 +1817,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   printf("...Comenzando calculo de MU...\n");
   clock_t tiempoCalculoMU;
   tiempoCalculoMU = clock();
-  float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos);
+  float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPUs);
   tiempoCalculoMU = clock() - tiempoCalculoMU;
   float tiempoTotalCalculoMU = ((float)tiempoCalculoMU)/CLOCKS_PER_SEC;
   printf("Calculo de MU completado.\n");
@@ -1887,7 +1845,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   printf("...Comenzando minimizacion de coeficientes parte imaginaria...\n");
   clock_t tiempoMinPartImag;
   tiempoMinPartImag = clock();
-  float* MC_imag = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_imag, nombreArchivoCoefs_imag, MV, MU, visi_parteImaginaria, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, numGPUs);
+  float* MC_imag = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_imag, nombreArchivoCoefs_imag, MV, MU, visi_parteImaginaria, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, tamBloque, numGPUs);
   tiempoMinPartImag = clock() - tiempoMinPartImag;
   float tiempoTotalMinPartImag = ((float)tiempoMinPartImag)/CLOCKS_PER_SEC;
   printf("Proceso de minimizacion de coeficientes parte imaginaria terminado.\n");
@@ -1905,7 +1863,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   printf("...Comenzando minimizacion de coeficientes parte real...\n");
   clock_t tiempoMinPartReal;
   tiempoMinPartReal = clock();
-  float* MC_real = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_real, nombreArchivoCoefs_real, MV, MU, visi_parteReal, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, numGPUs);
+  float* MC_real = minGradConjugado_MinCuadra_escritura(nombreArchivoMin_real, nombreArchivoCoefs_real, MV, MU, visi_parteReal, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, tamBloque, numGPUs);
   tiempoMinPartReal = clock() - tiempoMinPartReal;
   float tiempoTotalMinPartReal = ((float)tiempoMinPartReal)/CLOCKS_PER_SEC;
   printf("Proceso de minimizacion de coeficientes parte real terminado.\n");
@@ -1929,12 +1887,12 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   strcat(nombreArchivoReconsImg, nombreArReconsImg);
   clock_t tiempoCalculoMV_AF;
   tiempoCalculoMV_AF = clock();
-  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN);
+  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPUs);
   tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
   float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
   clock_t tiempoCalculoMU_AF;
   tiempoCalculoMU_AF = clock();
-  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN);
+  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPUs);
   tiempoCalculoMU_AF = clock() - tiempoCalculoMU_AF;
   float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
   clock_t tiempoReconsFourierPartImag;
@@ -1975,7 +1933,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  int cantCoefs = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, numGPUs);
+  int cantCoefs = calPSNRDeDistintasCompresiones(inicioPorcenCompre, terminoPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPUs);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -2014,8 +1972,8 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
 double funcOptiInfo_Traza_Rect(double ancho, void* params)
 {
   struct parametros_BaseRect* ps = (struct parametros_BaseRect*) params;
-  float* MV = calcularMV_Rect(ps->v, ps->delta_v, ps->cantVisi, ps->N, ps->estrechezDeBorde, ancho, ps->matrizDeUnos);
-  float* MU = calcularMV_Rect(ps->u, ps->delta_u, ps->cantVisi, ps->N, ps->estrechezDeBorde, ancho, ps->matrizDeUnos);
+  float* MV = calcularMV_Rect(ps->v, ps->delta_v, ps->cantVisi, ps->N, ps->estrechezDeBorde, ancho, ps->matrizDeUnos, 1024, 1);
+  float* MU = calcularMV_Rect(ps->u, ps->delta_u, ps->cantVisi, ps->N, ps->estrechezDeBorde, ancho, ps->matrizDeUnos, 1024, 1);
   float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1);
   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
   free(medidasDeInfo);
@@ -2027,8 +1985,8 @@ double funcOptiInfo_Traza_Rect(double ancho, void* params)
 double funcOptiInfo_Traza_Normal(double ancho, void* params)
 {
   struct parametros_BaseNormal* ps = (struct parametros_BaseNormal*) params;
-  float* MV = calcularMV_Normal(ps->v, ps->delta_v, ps->cantVisi, ps->N, ancho);
-  float* MU = calcularMV_Normal(ps->u, ps->delta_u, ps->cantVisi, ps->N, ancho);
+  float* MV = calcularMV_Normal(ps->v, ps->delta_v, ps->cantVisi, ps->N, ancho, 1024, 1);
+  float* MU = calcularMV_Normal(ps->u, ps->delta_u, ps->cantVisi, ps->N, ancho, 1024, 1);
   float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1);
   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
   free(medidasDeInfo);
@@ -2342,10 +2300,10 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
       printf("PROGRAMA ABORTADO.\n");
       exit(0);
   }
-  int cotaEnergiaInt = cotaEnergia * 100;
-  char* cotaEnergiaString = numAString(&cotaEnergiaInt);
-  sprintf(cotaEnergiaString, "%d", cotaEnergiaInt);
-  strcat(nombreDirPrin, cotaEnergiaString);
+  // int cotaEnergiaInt = cotaEnergia * 100;
+  // char* cotaEnergiaString = numAString(&cotaEnergiaInt);
+  // sprintf(cotaEnergiaString, "%d", cotaEnergiaInt);
+  // strcat(nombreDirPrin, cotaEnergiaString);
   if(mkdir(nombreDirPrin, 0777) == -1)
   {
       printf("ERROR: El directorio EXISTE, PELIGRO DE SOBREESCRITURA, por favor eliga otro nombre de directorio.\n");
@@ -2423,7 +2381,7 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
   // }
 }
 
-void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char nombreDirPrin[], float ancho, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int numGPUs)
+void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char nombreDirPrin[], float ancho, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPUs)
 {
 
   if(mkdir(nombreDirPrin, 0777) == -1)
@@ -2440,28 +2398,28 @@ void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finInte
 
   // ############### CALCULO DE MU Y MV - CREACION DE DIRECTORIO SEGUNDARIO  ##############
   printf("...Comenzando calculo de MV...\n");
-  float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos);
+  float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPUs);
   printf("Calculo de MV completado.\n");
 
   printf("...Comenzando calculo de MU...\n");
-  float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos);
+  float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPUs);
   printf("Calculo de MU completado.\n");
 
 
   // ############### MINIMIZACION DE COEFS, PARTE IMAGINARIA  ##############
   printf("...Comenzando minimizacion de coeficientes parte imaginaria...\n");
-  float* MC_imag = minGradConjugado_MinCuadra(MV, MU, visi_parteImaginaria, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, numGPUs);
+  float* MC_imag = minGradConjugado_MinCuadra(MV, MU, visi_parteImaginaria, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, tamBloque, numGPUs);
   printf("Proceso de minimizacion de coeficientes parte imaginaria terminado.\n");
 
 
   // ############### MINIMIZACION DE COEFS, PARTE REAL  ##############
   printf("...Comenzando minimizacion de coeficientes parte real...\n");
-  float* MC_real = minGradConjugado_MinCuadra(MV, MU, visi_parteReal, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, numGPUs);
+  float* MC_real = minGradConjugado_MinCuadra(MV, MU, visi_parteReal, w, cantVisi, N, matrizDeUnosTamN, maxIter, tol, tamBloque, numGPUs);
   printf("Proceso de minimizacion de coeficientes parte real terminado.\n");
 
 
-  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN);
-  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN);
+  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPUs);
+  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPUs);
 
 
   float* MC_comp_imag;
@@ -2478,7 +2436,7 @@ void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finInte
   cudaMallocManaged(&MC_modulo, N*N*sizeof(float));
   hadamardProduct(MC_imag, N, N, MC_imag, MC_img_cuadrado);
   hadamardProduct(MC_real, N, N, MC_real, MC_modulo);
-  combinacionLinealMatrices(1.0, MC_img_cuadrado, N, N, 1.0, MC_modulo);
+  combinacionLinealMatrices(1.0, MC_img_cuadrado, N, N, 1.0, MC_modulo, tamBloque, numGPUs);
   cudaFree(MC_img_cuadrado);
   af::array MC_modulo_GPU(N*N, MC_modulo);
   cudaFree(MC_modulo);
@@ -2504,7 +2462,7 @@ void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finInte
   float sumador = 0.0;
   float* cantCoefsPorParametro = (float*) malloc(sizeof(float)*cantParamEvaInfo);
   float* cantidadPorcentualDeCoefs = linspace(1.0, largo, largo);
-  combinacionLinealMatrices(0.0, cantidadPorcentualDeCoefs, largo, 1, 1.0/N, cantidadPorcentualDeCoefs);
+  combinacionLinealMatrices(0.0, cantidadPorcentualDeCoefs, largo, 1, 1.0/N, cantidadPorcentualDeCoefs, tamBloque, numGPUs);
   for(long j=0; j<cantParamEvaInfo; j++)
   {
     sumador = 0.0;
