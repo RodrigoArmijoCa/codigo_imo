@@ -186,7 +186,8 @@ float* linspaceNoEquiespaciado(float* limitesDeZonas, float* cantPuntosPorZona, 
   {
     cantPuntosTotales += cantPuntosPorZona[i%cantParesDePuntos];
   }
-  float* puntosTotales = (float*) malloc(sizeof(float)*cantPuntosTotales);
+  float* puntosTotales;
+  cudaMallocManaged(&puntosTotales, cantPuntosTotales*sizeof(float));
   int posicionActual = 0;
   int posicionCantPuntosPorZona = 0;
   for(int i=0; i<cantZonas; i++)
@@ -211,6 +212,32 @@ float* linspaceNoEquiespaciado(float* limitesDeZonas, float* cantPuntosPorZona, 
     printf("%f ", puntosTotales[i]);
   }
   printf("\n");
+  return puntosTotales;
+}
+
+float* linspaceNoEquiespaciadoMitad(float* limitesDeZonas, float* cantPuntosPorZona, int cantPtosLimites)
+{
+  // float c1, float b1, float a1, float a2, float b2, float c2, int nc, int nb, int na
+  int cantPuntosTotales = cantPtosLimites;
+  for(int i=0; i<cantPtosLimites-1; i++)
+  {
+    cantPuntosTotales += cantPuntosPorZona[i];
+  }
+  printf("La cantidad de puntos totales es %d\n", cantPuntosTotales);
+  float* puntosTotales;
+  cudaMallocManaged(&puntosTotales, cantPuntosTotales*sizeof(float));
+  int posicionActual = 0;
+  for(int i=0; i<cantPtosLimites-1; i++)
+  {
+    int cantPuntosAInsertar = cantPuntosPorZona[i]+2;
+    linspaceSinBordes(limitesDeZonas[i], limitesDeZonas[i+1], cantPuntosAInsertar, &(puntosTotales[posicionActual]));
+    posicionActual += cantPuntosAInsertar-1;
+  }
+  // for(int i=0; i<cantPuntosTotales; i++)
+  // {
+  //   printf("%f ", puntosTotales[i]);
+  // }
+  // printf("\n");
   return puntosTotales;
 }
 
@@ -324,7 +351,7 @@ void multMatrices(float* a, long m, long k, float* b, long n, float* c, int numG
 {
   cublasXtHandle_t handle;
   cublasXtCreate(&handle);
-  int devices[1] = { 0 };
+  int devices[1] = { 1 };
   if(cublasXtDeviceSelect(handle, 1, devices) != CUBLAS_STATUS_SUCCESS)
   {
     printf("set devices fail\n");
@@ -684,46 +711,67 @@ void vectorColumnaAMatriz(float* vectorA, long cantFilas, long cantColumnas, flo
   cudaFree(vectorDeUnos);
 }
 
-__global__ void multMatrizPorConstante_kernel_multiGPU(float* matrizA, long cantFilas, long cantColumnas, float constante, int gpuId)
+__global__ void multMatrizPorConstante_kernel(float* matrizA, long cantFilas, long cantColumnas, float constante)
 {
-  long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+  long miId = threadIdx.x + blockDim.x * blockIdx.x;
   if(miId < cantFilas*cantColumnas)
   {
     matrizA[miId] = constante * matrizA[miId];
   }
 }
 
-void multMatrizPorConstante(float* matrizA, long cantFilas, long cantColumnas, float constante, int tamBloque, int numGPUs)
+void multMatrizPorConstante(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float constante, int tamBloque, int numGPUs)
 {
-  long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
-  #pragma omp parallel num_threads(numGPUs)
-  {
-    int thread_id = omp_get_thread_num();
-    cudaSetDevice(thread_id);
-    multMatrizPorConstante_kernel_multiGPU<<<cantBloques,tamBloque>>>(matrizA, cantFilas, cantColumnas, constante, thread_id);
-  }
+  long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
+  multMatrizPorConstante_kernel<<<cantBloques,1024>>>(matrizA, cantFilasMatrizA, cantColumnasMatrizA, constante);
   cudaDeviceSynchronize();
 }
 
-// __global__ void combinacionLinealMatrices_kernel(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
+// __global__ void multMatrizPorConstante_kernel_multiGPU(float* matrizA, long cantFilas, long cantColumnas, float constante, int gpuId)
 // {
-//   long miId = threadIdx.x + blockDim.x * blockIdx.x;
+//   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+//   if(miId < cantFilas*cantColumnas)
+//   {
+//     matrizA[miId] = constante * matrizA[miId];
+//   }
+// }
+//
+// void multMatrizPorConstante(float* matrizA, long cantFilas, long cantColumnas, float constante, int tamBloque, int numGPUs)
+// {
+//   long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
+//   #pragma omp parallel num_threads(numGPUs)
+//   {
+//     int thread_id = omp_get_thread_num();
+//     cudaSetDevice(thread_id);
+//     multMatrizPorConstante_kernel_multiGPU<<<cantBloques,tamBloque>>>(matrizA, cantFilas, cantColumnas, constante, thread_id);
+//   }
+//   cudaDeviceSynchronize();
+// }
+
+// __global__ void combinacionLinealMatrices_kernel_multiGPU(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int gpuId)
+// {
+//   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
 //   if(miId < cantFilas*cantColumnas)
 //   {
 //     matrizB[miId] = al * matrizA[miId] + bet * matrizB[miId];
 //   }
 // }
 //
-// void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
+// void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int tamBloque, int numGPUs)
 // {
-//   long cantBloques = ceil((float) cantFilas*cantColumnas/1024);
-//   combinacionLinealMatrices_kernel<<<cantBloques,1024>>>(al, matrizA, cantFilas, cantColumnas, bet, matrizB);
+//   long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
+//   #pragma omp parallel num_threads(numGPUs)
+//   {
+//     int thread_id = omp_get_thread_num();
+//     cudaSetDevice(thread_id);
+//     combinacionLinealMatrices_kernel_multiGPU<<<cantBloques,tamBloque>>>(al, matrizA, cantFilas, cantColumnas, bet, matrizB, thread_id);
+//   }
 //   cudaDeviceSynchronize();
 // }
 
-__global__ void combinacionLinealMatrices_kernel_multiGPU(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int gpuId)
+__global__ void combinacionLinealMatrices_kernel(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB)
 {
-  long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+  long miId = threadIdx.x + blockDim.x * blockIdx.x;
   if(miId < cantFilas*cantColumnas)
   {
     matrizB[miId] = al * matrizA[miId] + bet * matrizB[miId];
@@ -732,15 +780,29 @@ __global__ void combinacionLinealMatrices_kernel_multiGPU(float al, float* matri
 
 void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long cantColumnas, float bet, float* matrizB, int tamBloque, int numGPUs)
 {
-  long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
-  #pragma omp parallel num_threads(numGPUs)
-  {
-    int thread_id = omp_get_thread_num();
-    cudaSetDevice(thread_id);
-    combinacionLinealMatrices_kernel_multiGPU<<<cantBloques,tamBloque>>>(al, matrizA, cantFilas, cantColumnas, bet, matrizB, thread_id);
-  }
+  long cantBloques = ceil((float) cantFilas*cantColumnas/1024);
+  combinacionLinealMatrices_kernel<<<cantBloques,1024>>>(al, matrizA, cantFilas, cantColumnas, bet, matrizB);
   cudaDeviceSynchronize();
 }
+
+// __global__ void transponerMatriz_kernel(float* matrizA, float* matrizA_T, long cantFilas, long cantColumnas)
+// {
+//   long miId = threadIdx.x + blockDim.x * blockIdx.x;
+//   if(miId < cantFilas*cantColumnas)
+//   {
+//     long i = miId%cantFilas;
+//     long j = miId/cantFilas;
+//     matrizA_T[(i*cantColumnas+j)] = matrizA[(j*cantFilas+i)];
+//   }
+// }
+//
+// void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado)
+// {
+//   long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
+//   transponerMatriz_kernel<<<cantBloques,1024>>>(matrizA, resultado, cantFilasMatrizA, cantColumnasMatrizA);
+//   cudaDeviceSynchronize();
+// }
+
 
 __global__ void transponerMatriz_kernel(float* idata, float* odata, long width, long height)
 {
@@ -770,9 +832,9 @@ void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMa
   cudaDeviceSynchronize();
 }
 
-__global__ void restaVectorColumnaConVector_kernel_multiGPU(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, float* resultado, int gpuId)
+__global__ void restaVectorColumnaConVector_kernel(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, float* resultado)
 {
-  long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+  long miId = threadIdx.x + blockDim.x * blockIdx.x;
   if(miId < largoVectorA*largoVectorB)
   {
     long i = miId%largoVectorA;
@@ -785,16 +847,58 @@ float* restaVectorColumnaConVector(float* vectorA, long largoVectorA, float* vec
 {
   float* resultado;
   cudaMallocManaged(&resultado,largoVectorA*largoVectorB*sizeof(float));
-  long cantBloques = ceil((float) largoVectorA*largoVectorB/tamBloque*numGPUs);
-  #pragma omp parallel num_threads(numGPUs)
-  {
-    int thread_id = omp_get_thread_num();
-    cudaSetDevice(thread_id);
-    restaVectorColumnaConVector_kernel_multiGPU<<<cantBloques,tamBloque>>>(vectorA, largoVectorA, vectorB, largoVectorB, resultado, thread_id);
-  }
+  long cantBloques = ceil((float) largoVectorA*largoVectorB/1024);
+  restaVectorColumnaConVector_kernel<<<cantBloques,1024>>>(vectorA, largoVectorA, vectorB, largoVectorB, resultado);
   cudaDeviceSynchronize();
   return resultado;
 }
+
+// __global__ void restaVectorColumnaConVector_kernel_multiGPU(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, float* resultado, int gpuId)
+// {
+//   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+//   if(miId < largoVectorA*largoVectorB)
+//   {
+//     long i = miId%largoVectorA;
+//     long j = miId/largoVectorA;
+//     resultado[miId] = vectorA[i] - vectorB[j];
+//   }
+// }
+//
+// float* restaVectorColumnaConVector(float* vectorA, long largoVectorA, float* vectorB, long largoVectorB, int tamBloque, int numGPUs)
+// {
+//   float* resultado;
+//   cudaMallocManaged(&resultado,largoVectorA*largoVectorB*sizeof(float));
+//   long cantBloques = ceil((float) largoVectorA*largoVectorB/tamBloque*numGPUs);
+//   #pragma omp parallel num_threads(numGPUs)
+//   {
+//     int thread_id = omp_get_thread_num();
+//     cudaSetDevice(thread_id);
+//     restaVectorColumnaConVector_kernel_multiGPU<<<cantBloques,tamBloque>>>(vectorA, largoVectorA, vectorB, largoVectorB, resultado, thread_id);
+//   }
+//   cudaDeviceSynchronize();
+//   return resultado;
+// }
+
+// __global__ void hadamardProduct_kernel_multiGPU(float* matrizA, float* matrizB, float* resultado, long cantFilas, long cantColumnas, int gpuId)
+// {
+//   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+//   if(miId < cantFilas*cantColumnas)
+//   {
+//     resultado[miId] = matrizA[miId]*matrizB[miId];
+//   }
+// }
+//
+// void hadamardProduct(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* matrizB, float* resultado, int tamBloque, int numGPUs)
+// {
+//   long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/tamBloque*numGPUs);
+//   #pragma omp parallel num_threads(numGPUs)
+//   {
+//     int thread_id = omp_get_thread_num();
+//     cudaSetDevice(thread_id);
+//     hadamardProduct_kernel_multiGPU<<<cantBloques,tamBloque>>>(matrizA, matrizB, resultado, cantFilasMatrizA, cantColumnasMatrizA, thread_id);
+//   }
+//   cudaDeviceSynchronize();
+// }
 
 __global__ void hadamardProduct_kernel(float* matrizA, float* matrizB, float* resultado, long cantFilas, long cantColumnas)
 {
@@ -805,31 +909,10 @@ __global__ void hadamardProduct_kernel(float* matrizA, float* matrizB, float* re
   }
 }
 
-void hadamardProduct(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* matrizB, float* resultado)
+void hadamardProduct(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* matrizB, float* resultado, int tamBloque, int numGPUs)
 {
   long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
   hadamardProduct_kernel<<<cantBloques,1024>>>(matrizA, matrizB, resultado, cantFilasMatrizA, cantColumnasMatrizA);
-  cudaDeviceSynchronize();
-}
-
-__global__ void hadamardProduct_kernel_multiGPU(float* matrizA, float* matrizB, float* resultado, long cantFilas, long cantColumnas, int gpuId)
-{
-  long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
-  if(miId < cantFilas*cantColumnas)
-  {
-    resultado[miId] = matrizA[miId]*matrizB[miId];
-  }
-}
-
-void hadamardProduct2(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* matrizB, float* resultado, int tamBloque, int numGPUs)
-{
-  long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/tamBloque*numGPUs);
-  #pragma omp parallel num_threads(numGPUs)
-  {
-    int thread_id = omp_get_thread_num();
-    cudaSetDevice(thread_id);
-    hadamardProduct_kernel_multiGPU<<<cantBloques,tamBloque>>>(matrizA, matrizB, resultado, cantFilasMatrizA, cantColumnasMatrizA, thread_id);
-  }
   cudaDeviceSynchronize();
 }
 
@@ -843,34 +926,34 @@ __global__ void MultPorDifer_kernel(float* matrizA, float* matrizB, float* resul
   }
 }
 
-void MultPorDifer(float* matrizA, long cantFilas, long cantColumnas, float* diferencias, float* resultado)
+void MultPorDifer(float* matrizA, long cantFilas, long cantColumnas, float* diferencias, float* resultado, int tamBloque, int numGPUs)
 {
   long cantBloques = ceil((float) cantFilas*cantColumnas/1024);
   MultPorDifer_kernel<<<cantBloques,1024>>>(matrizA, diferencias, resultado, cantFilas, cantColumnas);
   cudaDeviceSynchronize();
 }
 
-__global__ void MultPorDifer_kernel_multiGPU(float* matrizA, float* matrizB, float* resultado, long cantFilas, long cantColumnas, int gpuId)
-{
-  long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
-  if(miId < cantFilas*cantColumnas)
-  {
-    long posicionEnB = miId%cantFilas;
-    resultado[miId] = matrizA[miId]*matrizB[posicionEnB];
-  }
-}
-
-void MultPorDifer2(float* matrizA, long cantFilas, long cantColumnas, float* diferencias, float* resultado, int tamBloque, int numGPUs)
-{
-  long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
-  #pragma omp parallel num_threads(numGPUs)
-  {
-    int thread_id = omp_get_thread_num();
-    cudaSetDevice(thread_id);
-    MultPorDifer_kernel_multiGPU<<<cantBloques,tamBloque>>>(matrizA, diferencias, resultado, cantFilas, cantColumnas, thread_id);
-  }
-  cudaDeviceSynchronize();
-}
+// __global__ void MultPorDifer_kernel_multiGPU(float* matrizA, float* matrizB, float* resultado, long cantFilas, long cantColumnas, int gpuId)
+// {
+//   long miId = threadIdx.x + blockDim.x * (blockIdx.x + gpuId * gridDim.x);
+//   if(miId < cantFilas*cantColumnas)
+//   {
+//     long posicionEnB = miId%cantFilas;
+//     resultado[miId] = matrizA[miId]*matrizB[posicionEnB];
+//   }
+// }
+//
+// void MultPorDifer(float* matrizA, long cantFilas, long cantColumnas, float* diferencias, float* resultado, int tamBloque, int numGPUs)
+// {
+//   long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque*numGPUs);
+//   #pragma omp parallel num_threads(numGPUs)
+//   {
+//     int thread_id = omp_get_thread_num();
+//     cudaSetDevice(thread_id);
+//     MultPorDifer_kernel_multiGPU<<<cantBloques,tamBloque>>>(matrizA, diferencias, resultado, cantFilas, cantColumnas, thread_id);
+//   }
+//   cudaDeviceSynchronize();
+// }
 
 float dotProduct(float* x, long n, float* y)
 {
@@ -956,42 +1039,26 @@ void calcularInvFrac2(float* matrizA, long cantFilasMatrizA, long cantColumnasMa
   cudaDeviceSynchronize();
 }
 
-void calVisModelo(float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, float* visModelo_paso3, int numGPUs)
+void calVisModelo(float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, float* visModelo_paso3, int tamBloque, int numGPUs)
 {
-  // printf("VisModelo1\n");
   float* MU_T;
   cudaMallocManaged(&MU_T, cantFilasMV*cantColumnasMU*sizeof(float));
-  // printf("VisModelo2\n");
   transponerMatriz(MU, cantFilasMV, cantColumnasMU, MU_T);
-  // printf("VisModelo3\n");
   float* visModelo_paso1;
   cudaMallocManaged(&visModelo_paso1, cantColumnasMV*cantFilasMV*sizeof(float));
-  // printf("VisModelo4\n");
   cudaMemset(visModelo_paso1, 0, cantColumnasMV*cantFilasMV*sizeof(float));
-  // printf("VisModelo5\n");
   multMatrices(MC, cantColumnasMV, cantColumnasMU, MU_T, cantFilasMV, visModelo_paso1, numGPUs);
-  // printf("VisModelo6\n");
   cudaFree(MU_T);
-  // printf("VisModelo7\n");
   float* transpuesta;
   cudaMallocManaged(&transpuesta, cantColumnasMV*cantFilasMV*sizeof(float));
-  // printf("VisModelo8\n");
   transponerMatriz(visModelo_paso1, cantColumnasMV, cantFilasMV, transpuesta);
-  // printf("VisModelo9\n");
   cudaFree(visModelo_paso1);
-  // printf("VisModelo10\n");
   float* visModelo_paso2;
   cudaMallocManaged(&visModelo_paso2, cantFilasMV*cantColumnasMV*sizeof(float));
-  // printf("VisModelo11\n");
-  hadamardProduct(MV, cantFilasMV, cantColumnasMV, transpuesta, visModelo_paso2);
-  // printf("VisModelo12\n");
+  hadamardProduct(MV, cantFilasMV, cantColumnasMV, transpuesta, visModelo_paso2, tamBloque, numGPUs);
   cudaFree(transpuesta);
-  // printf("VisModelo13\n");
-  long uno = 1;
-  multMatrices(visModelo_paso2, cantFilasMV, cantColumnasMV, matrizDeUnosTamN, uno, visModelo_paso3, numGPUs);
-  // printf("VisModelo14\n");
+  multMatrices(visModelo_paso2, cantFilasMV, cantColumnasMV, matrizDeUnosTamN, 1, visModelo_paso3, numGPUs);
   cudaFree(visModelo_paso2);
-  // printf("VisModelo15\n");
 }
 
 float* calResidual(float* visObs, float* MV, long cantFilasMV, long cantColumnasMV, float* MC, long cantColumnasMU, float* MU, float* matrizDeUnosTamN, int tamBloque, int numGPUs)
@@ -1002,31 +1069,31 @@ float* calResidual(float* visObs, float* MV, long cantFilasMV, long cantColumnas
   // printf("Residual2\n");
   cudaMemset(visModelo, 0, cantFilasMV*sizeof(float));
   // printf("Residual3\n");
-  calVisModelo(MV, cantFilasMV, cantColumnasMV, MC, cantColumnasMU, MU, matrizDeUnosTamN, visModelo, numGPUs);
+  calVisModelo(MV, cantFilasMV, cantColumnasMV, MC, cantColumnasMU, MU, matrizDeUnosTamN, visModelo, tamBloque, numGPUs);
   // printf("Residual4\n");
   combinacionLinealMatrices(-1.0, visObs, cantFilasMV, 1, 1.0, visModelo, tamBloque, numGPUs);
   // printf("Residual5\n");
   return visModelo;
 }
 
-float calCosto(float* residual, long cantVisi, float* w)
+float calCosto(float* residual, long cantVisi, float* w, int tamBloque, int numGPUs)
 {
   float* resultado;
   cudaMallocManaged(&resultado, cantVisi*sizeof(float));
-  hadamardProduct(residual, cantVisi, 1, w, resultado);
+  hadamardProduct(residual, cantVisi, 1, w, resultado, tamBloque, numGPUs);
   float total = dotProduct(resultado, cantVisi, residual);
   cudaFree(resultado);
   return total;
 }
 
-void calGradiente(float* residual, float* MV, long cantFilasMV, long cantColumnasMV, float* MU, long cantColumnasMU, float* w, float* total_paso2, int numGPUs)
+void calGradiente(float* residual, float* MV, long cantFilasMV, long cantColumnasMV, float* MU, long cantColumnasMU, float* w, float* total_paso2, int tamBloque, int numGPUs)
 {
   float* diferencia;
   cudaMallocManaged(&diferencia, cantFilasMV*sizeof(float));
-  hadamardProduct(residual, cantFilasMV, 1, w, diferencia);
+  hadamardProduct(residual, cantFilasMV, 1, w, diferencia, tamBloque, numGPUs);
   float* total_paso1;
   cudaMallocManaged(&total_paso1, cantColumnasMV*cantFilasMV*sizeof(float));
-  MultPorDifer(MV, cantFilasMV, cantColumnasMV, diferencia, total_paso1);
+  MultPorDifer(MV, cantFilasMV, cantColumnasMV, diferencia, total_paso1, tamBloque, numGPUs);
   cudaFree(diferencia);
   float* total_paso1_5;
   cudaMallocManaged(&total_paso1_5, cantColumnasMV*cantFilasMV*sizeof(float));
@@ -1047,11 +1114,11 @@ float calAlpha(float* gradiente, long cantFilasMC, long cantColumnasMC, float* p
   float* visModeloP;
   cudaMallocManaged(&visModeloP, cantFilasMV*sizeof(float));
   cudaMemset(visModeloP, 0, cantFilasMV*sizeof(float));
-  calVisModelo(MV, cantFilasMV, cantColumnasMV, pActual, cantColumnasMU, MU, matrizDeUnosTamN, visModeloP, numGPUs);
+  calVisModelo(MV, cantFilasMV, cantColumnasMV, pActual, cantColumnasMU, MU, matrizDeUnosTamN, visModeloP, tamBloque, numGPUs);
   float* gradP;
   cudaMallocManaged(&gradP, cantFilasMC * cantColumnasMC*sizeof(float));
   cudaMemset(gradP, 0, cantFilasMC * cantColumnasMC*sizeof(float));
-  calGradiente(visModeloP, MV, cantFilasMV, cantColumnasMV, MU, cantColumnasMU, w, gradP, numGPUs);
+  calGradiente(visModeloP, MV, cantFilasMV, cantColumnasMV, MU, cantColumnasMU, w, gradP, tamBloque, numGPUs);
   cudaFree(visModeloP);
   float denominador = dotProduct(pActual, cantFilasMC * cantColumnasMC, gradP);
   cudaFree(gradP);
@@ -1070,14 +1137,14 @@ float calBeta_Fletcher_Reeves(float* gradienteActual, long tamanoGradiente, floa
   return resultado;
 }
 
-float* calInfoFisherDiag(float* MV, long cantFilasMV, long cantColumnasMV, float* MU, float* w, int numGPUs)
+float* calInfoFisherDiag(float* MV, long cantFilasMV, long cantColumnasMV, float* MU, float* w, int tamBloque, int numGPUs)
 {
   float* MV_T;
   cudaMallocManaged(&MV_T, cantFilasMV*cantColumnasMV*sizeof(float));
   transponerMatriz(MV, cantFilasMV, cantColumnasMV, MV_T);
   float* primeraMatriz_fase1;
   cudaMallocManaged(&primeraMatriz_fase1, cantColumnasMV*cantFilasMV*sizeof(float));
-  hadamardProduct(MV_T, cantColumnasMV, cantFilasMV, MV_T, primeraMatriz_fase1);
+  hadamardProduct(MV_T, cantColumnasMV, cantFilasMV, MV_T, primeraMatriz_fase1, tamBloque, numGPUs);
   cudaFree(MV_T);
   float* wMatriz;
   cudaMallocManaged(&wMatriz, cantFilasMV*cantColumnasMV*sizeof(float));
@@ -1089,7 +1156,7 @@ float* calInfoFisherDiag(float* MV, long cantFilasMV, long cantColumnasMV, float
   cudaFree(wMatriz);
   float* primeraMatriz_fase2;
   cudaMallocManaged(&primeraMatriz_fase2, cantColumnasMV*cantFilasMV*sizeof(float));
-  hadamardProduct(primeraMatriz_fase1, cantColumnasMV, cantFilasMV, wmatriz_T, primeraMatriz_fase2);
+  hadamardProduct(primeraMatriz_fase1, cantColumnasMV, cantFilasMV, wmatriz_T, primeraMatriz_fase2, tamBloque, numGPUs);
   cudaFree(primeraMatriz_fase1);
   cudaFree(wmatriz_T);
   float* MU_T;
@@ -1097,11 +1164,11 @@ float* calInfoFisherDiag(float* MV, long cantFilasMV, long cantColumnasMV, float
   transponerMatriz(MU, cantFilasMV, cantColumnasMV, MU_T);
   float* segundaMatriz;
   cudaMallocManaged(&segundaMatriz, cantFilasMV*cantColumnasMV*sizeof(float));
-  hadamardProduct(MU_T, cantFilasMV, cantColumnasMV, MU_T, segundaMatriz);
+  hadamardProduct(MU_T, cantFilasMV, cantColumnasMV, MU_T, segundaMatriz, tamBloque, numGPUs);
   cudaFree(MU_T);
   float* resultado_fase1;
   cudaMallocManaged(&resultado_fase1, cantColumnasMV*cantFilasMV*sizeof(float));
-  hadamardProduct(primeraMatriz_fase2, cantColumnasMV, cantFilasMV, segundaMatriz, resultado_fase1);
+  hadamardProduct(primeraMatriz_fase2, cantColumnasMV, cantFilasMV, segundaMatriz, resultado_fase1, tamBloque, numGPUs);
   cudaFree(primeraMatriz_fase2);
   cudaFree(segundaMatriz);
   float* vectorDeUnos;
@@ -1255,7 +1322,7 @@ float* calcularMV_Normal(float* v, float delta_v, long cantVisi, long N, float a
   float* MV = restaVectorColumnaConVector(v, cantVisi, CV, N, tamBloque, numGPUs);
   cudaFree(CV);
   multMatrizPorConstante(MV, cantVisi, N, 1.0/anchoV, tamBloque, numGPUs);
-  hadamardProduct(MV, cantVisi, N, MV, MV);
+  hadamardProduct(MV, cantVisi, N, MV, MV, tamBloque, numGPUs);
   multMatrizPorConstante(MV, cantVisi, N, -0.5, tamBloque, numGPUs);
   calcularExp(MV, cantVisi, N);
   multMatrizPorConstante(MV, cantVisi, N, 1.0/sqrt(2.0 * M_PI * anchoV * anchoV), tamBloque, numGPUs);
@@ -1300,8 +1367,8 @@ int calCompresionSegunCota(char* nombreArCoef_comp_imag, char* nombreArCoef_comp
   cudaMallocManaged(&MC_img_cuadrado, cantFilas*cantColumnas*sizeof(float));
   float* MC_modulo;
   cudaMallocManaged(&MC_modulo, cantFilas*cantColumnas*sizeof(float));
-  hadamardProduct(MC_imag, cantFilas, cantColumnas, MC_imag, MC_img_cuadrado);
-  hadamardProduct(MC_real, cantFilas, cantColumnas, MC_real, MC_modulo);
+  hadamardProduct(MC_imag, cantFilas, cantColumnas, MC_imag, MC_img_cuadrado, tamBloque, numGPUs);
+  hadamardProduct(MC_real, cantFilas, cantColumnas, MC_real, MC_modulo, tamBloque, numGPUs);
   combinacionLinealMatrices(1.0, MC_img_cuadrado, cantFilas, cantColumnas, 1.0, MC_modulo, tamBloque, numGPUs);
   cudaFree(MC_img_cuadrado);
   af::array MC_modulo_GPU(cantFilas*cantColumnas, MC_modulo);
@@ -1361,9 +1428,7 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
   float* MC;
   cudaMallocManaged(&MC, N*N*sizeof(float));
   cudaMemset(MC, 0, N*N*sizeof(float));
-  printf("Entrando a residual\n");
   float* residualInit = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
-  printf("Saliendo de residual\n");
   float* gradienteActual;
   cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
   cudaMemset(gradienteActual, 0, N*N*sizeof(float));
@@ -1373,12 +1438,10 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
   float* pActual;
   cudaMallocManaged(&pActual,N*N*sizeof(float));
   cudaMemset(pActual, 0, N*N*sizeof(float));
-  float costoInicial = calCosto(residualInit, cantVisi, w);
+  float costoInicial = calCosto(residualInit, cantVisi, w, tamBloque, numGPUs);
   float costoAnterior = costoInicial;
   float costoActual = costoInicial;
-  printf("Entrando a gradiente\n");
-  calGradiente(residualInit, MV, cantVisi, N, MU, N, w, gradienteAnterior, numGPUs);
-  printf("Saliendo de gradiente\n");
+  calGradiente(residualInit, MV, cantVisi, N, MU, N, w, gradienteAnterior, tamBloque, numGPUs);
   cudaFree(residualInit);
   // for(int i=0; i<N*N; i++)
   // {
@@ -1409,10 +1472,10 @@ float* minGradConjugado_MinCuadra_escritura(char* nombreArchivoMin, char* nombre
     }
     combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC, tamBloque, numGPUs);
     float* residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
-    costoActual = calCosto(residual, cantVisi, w);
+    costoActual = calCosto(residual, cantVisi, w, tamBloque, numGPUs);
     cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
     cudaMemset(gradienteActual, 0, N*N*sizeof(float));
-    calGradiente(residual, MV, cantVisi, N, MU, N, w, gradienteActual, numGPUs);
+    calGradiente(residual, MV, cantVisi, N, MU, N, w, gradienteActual, tamBloque, numGPUs);
     cudaFree(residual);
     float beta = calBeta_Fletcher_Reeves(gradienteActual, N*N, gradienteAnterior);
     combinacionLinealMatrices(-1.0, gradienteActual, N, N, beta, pActual, tamBloque, numGPUs);
@@ -1450,10 +1513,10 @@ float* minGradConjugado_MinCuadra(float* MV, float* MU, float* visibilidades, fl
   float* pActual;
   cudaMallocManaged(&pActual,N*N*sizeof(float));
   cudaMemset(pActual, 0, N*N*sizeof(float));
-  float costoInicial = calCosto(residualInit, cantVisi, w);
+  float costoInicial = calCosto(residualInit, cantVisi, w, tamBloque, numGPUs);
   float costoAnterior = costoInicial;
   float costoActual = costoInicial;
-  calGradiente(residualInit, MV, cantVisi, N, MU, N, w, gradienteAnterior, numGPUs);
+  calGradiente(residualInit, MV, cantVisi, N, MU, N, w, gradienteAnterior, tamBloque, numGPUs);
   cudaFree(residualInit);
   combinacionLinealMatrices(-1.0, gradienteAnterior, N, N, 0.0, pActual, tamBloque, numGPUs);
   float diferenciaDeCosto = 1.0;
@@ -1470,10 +1533,10 @@ float* minGradConjugado_MinCuadra(float* MV, float* MU, float* visibilidades, fl
     }
     combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC, tamBloque, numGPUs);
     float* residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPUs);
-    costoActual = calCosto(residual, cantVisi, w);
+    costoActual = calCosto(residual, cantVisi, w, tamBloque, numGPUs);
     cudaMallocManaged(&gradienteActual,N*N*sizeof(float));
     cudaMemset(gradienteActual, 0, N*N*sizeof(float));
-    calGradiente(residual, MV, cantVisi, N, MU, N, w, gradienteActual, numGPUs);
+    calGradiente(residual, MV, cantVisi, N, MU, N, w, gradienteActual, tamBloque, numGPUs);
     cudaFree(residual);
     float beta = calBeta_Fletcher_Reeves(gradienteActual, N*N, gradienteAnterior);
     combinacionLinealMatrices(-1.0, gradienteActual, N, N, beta, pActual, tamBloque, numGPUs);
@@ -1589,7 +1652,6 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo,
   float cotaMinCompresion = 0.2 * finIntervalo;
   float* datosDelMin = (float*) malloc(sizeof(float)*8);
   long cantCoefsMejorCompre = 0;
-  // char nombreArchivoTXTCompre[] = "compresiones.txt";
   char nombreArchivoDatosMinPSNR[] = "mejorTradeOffPSNRCompre.txt";
   char nombreArchivoCompreImg[] = "compreImg";
   char nombreDatosDeIte[] = "datosDeIte.txt";
@@ -1609,8 +1671,8 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo,
   cudaMallocManaged(&MC_img_cuadrado, N*N*sizeof(float));
   float* MC_modulo;
   cudaMallocManaged(&MC_modulo, N*N*sizeof(float));
-  hadamardProduct(MC_imag, N, N, MC_imag, MC_img_cuadrado);
-  hadamardProduct(MC_real, N, N, MC_real, MC_modulo);
+  hadamardProduct(MC_imag, N, N, MC_imag, MC_img_cuadrado, tamBloque, numGPUs);
+  hadamardProduct(MC_real, N, N, MC_real, MC_modulo, tamBloque, numGPUs);
   combinacionLinealMatrices(1.0, MC_img_cuadrado, N, N, 1.0, MC_modulo, tamBloque, numGPUs);
   cudaFree(MC_img_cuadrado);
   af::array MC_modulo_GPU(N*N, MC_modulo);
@@ -1783,7 +1845,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, float finIntervalo,
           flag_inicioDeVentana = 0;
         }
         vectorDeDifePSNREntrePtosAdya[cantPtsVentana] = vectorDePSNRFiltrado[j] - vectorDePSNRFiltrado[j-1];
-        printf("%.12e\n", vectorDeDifePSNREntrePtosAdya[cantPtsVentana]);
+        // printf("%.12e\n", vectorDeDifePSNREntrePtosAdya[cantPtsVentana]);
         cantPtsVentana++;
       }
     }
@@ -1970,7 +2032,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
    // ############### CALCULO NIVEL DE INFORMACION ##############
   clock_t tiempoInfo;
   tiempoInfo = clock();
-  float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, numGPUs);
+  float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, numGPUs);
   tiempoInfo = clock() - tiempoInfo;
   float tiempoTotalInfo = ((float)tiempoInfo)/CLOCKS_PER_SEC;
   cudaFree(MU);
@@ -2040,10 +2102,11 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
   FILE* archivo = fopen(nombreArchivoInfoComp, "a");
   float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
-  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, (int) datosDelMin[4]);
+  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
   fclose(archivo);
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
+  free(datosDelMin);
 
   cudaFree(MC_real);
   cudaFree(MC_imag);
@@ -2067,10 +2130,10 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
 
 void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPUs)
 {
+  // hd_142
   float inicioPorcenCompre = 0.0;
   float terminoPorcenCompre = 0.2;
   int cantPorcen = 101;
-  // int cantPorcen = 2;
 
 
   // ############### CONFIG. DE NOMBRES DE ARCHIVOS  ##############
@@ -2155,7 +2218,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   // ############### CALCULO NIVEL DE INFORMACION ##############
   clock_t tiempoInfo;
   tiempoInfo = clock();
-  float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, numGPUs);
+  float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, numGPUs);
   tiempoInfo = clock() - tiempoInfo;
   float tiempoTotalInfo = ((float)tiempoInfo)/CLOCKS_PER_SEC;
   cudaFree(MU);
@@ -2225,10 +2288,11 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
   FILE* archivo = fopen(nombreArchivoInfoComp, "a");
   float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
-  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12d\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, (int) datosDelMin[4]);
+  fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
   fclose(archivo);
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
+  free(datosDelMin);
 
   cudaFree(MC_real);
   cudaFree(MC_imag);
@@ -2255,7 +2319,7 @@ double funcOptiInfo_Traza_Rect(double ancho, void* params)
   struct parametros_BaseRect* ps = (struct parametros_BaseRect*) params;
   float* MV = calcularMV_Rect(ps->v, ps->delta_v, ps->cantVisi, ps->N, ps->estrechezDeBorde, ancho, ps->matrizDeUnos, 1024, 1);
   float* MU = calcularMV_Rect(ps->u, ps->delta_u, ps->cantVisi, ps->N, ps->estrechezDeBorde, ancho, ps->matrizDeUnos, 1024, 1);
-  float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1);
+  float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1024, 1);
   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
   free(medidasDeInfo);
   cudaFree(MV);
@@ -2268,7 +2332,7 @@ double funcOptiInfo_Traza_Normal(double ancho, void* params)
   struct parametros_BaseNormal* ps = (struct parametros_BaseNormal*) params;
   float* MV = calcularMV_Normal(ps->v, ps->delta_v, ps->cantVisi, ps->N, ancho, 1024, 1);
   float* MU = calcularMV_Normal(ps->u, ps->delta_u, ps->cantVisi, ps->N, ancho, 1024, 1);
-  float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1);
+  float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1024, 1);
   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
   free(medidasDeInfo);
   cudaFree(MV);
@@ -2647,10 +2711,22 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
   // float optimo = goldenMin_BaseRect(u, v, w, delta_u, delta_v, matrizDeUnos, cantVisi, N, estrechezDeBorde);
   // printf("El optimo esta en %.12f\n", optimo);
 
-  float* paramEvaInfo = linspace(inicioIntervaloEscalado, finIntervaloEscalado, cantParamEvaInfo);
-  int i = 0;
-  // for(int i=0; i<cantParamEvaInfo; i++)
-  // {
+  // float* paramEvaInfo = linspace(inicioIntervaloEscalado, finIntervaloEscalado, cantParamEvaInfo);
+
+  float limitesDeZonas[] = {0.5, 2.0, 3.0};
+  // float limitesDeZonas[] = {1.0, 2.0, 3.0};
+  float cantPuntosPorZona[] = {300, 50};
+  int cantPtosLimites = 3;
+  float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+  float* paramEvaInfo;
+  cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
+  combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, numGPUs);
+  cudaFree(paramEvaInfo_pre);
+
+
+  // int i = 0;
+  for(int i=0; i<cantParamEvaInfo; i++)
+  {
     char* numComoString = numAString(&i);
     sprintf(numComoString, "%d", i);
     char* nombreDirSecCopia = (char*) malloc(sizeof(char)*strlen(nombreDirSec)*strlen(numComoString));
@@ -2659,7 +2735,7 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
     calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, numGPUs);
     free(numComoString);
     free(nombreDirSecCopia);
-  // }
+  }
 }
 
 void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char nombreDirPrin[], float ancho, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPUs)
@@ -2715,8 +2791,8 @@ void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finInte
   cudaMallocManaged(&MC_img_cuadrado, N*N*sizeof(float));
   float* MC_modulo;
   cudaMallocManaged(&MC_modulo, N*N*sizeof(float));
-  hadamardProduct(MC_imag, N, N, MC_imag, MC_img_cuadrado);
-  hadamardProduct(MC_real, N, N, MC_real, MC_modulo);
+  hadamardProduct(MC_imag, N, N, MC_imag, MC_img_cuadrado, tamBloque, numGPUs);
+  hadamardProduct(MC_real, N, N, MC_real, MC_modulo, tamBloque, numGPUs);
   combinacionLinealMatrices(1.0, MC_img_cuadrado, N, N, 1.0, MC_modulo, tamBloque, numGPUs);
   cudaFree(MC_img_cuadrado);
   af::array MC_modulo_GPU(N*N, MC_modulo);
@@ -3033,6 +3109,11 @@ int main()
   // linspaceNoEquiespaciado(limitesDeZonas, cantPuntosPorZona, cantParesDePuntos);
   // exit(1);
 
+  // float limitesDeZonas[] = {1, 2, 3};
+  // float cantPuntosPorZona[] = {4, 3};
+  // int cantPtosLimites = 3;
+  // linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+  // exit(1);
 
   // int M = 1000;
   // int K = 1000;
@@ -3101,10 +3182,10 @@ int main()
   long fin = 1000000;
 
   int tamBloque = 1024;
-  int numGPUs = 4;
+  int numGPUs = 1;
   // int N = 512;
   long N = 1600; //HLTau_B6cont.calavg.tav300s
-  int maxIter = 100;
+  int maxIter = 3;
 
   float tolGrad = 1E-12;
 
@@ -3221,14 +3302,16 @@ int main()
   // exit(1);
 
   float cotaEnergia = 0.99;
-  char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
+  // char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
   // char nombreDirPrin[] = "experi_hd142_Normal_visi800";
+  char nombreDirPrin[] = "/disk2/tmp/experi_hd142_linspacevariable_Rect_visi350";
   char nombreDirSec[] = "ite";
   char nombreDirTer[] = "compresiones";
   char nombreArchivoTiempo[] = "tiempo.txt";
-  int cantParamEvaInfo = 800;
+  int cantParamEvaInfo = 353;
+  // int cantParamEvaInfo = 800;
   // float inicioIntervalo = 0.8;
-  float inicioIntervalo = 1.0;
+  float inicioIntervalo = 0.5;
   float finIntervalo = 3.0;
   float tolGolden = 1E-12;
   int iterActual = 0;
