@@ -2135,7 +2135,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
    free(rutaADirecSec);
 }
 
-void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPU)
+void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPU, float* matrizDeUnosNxN)
 {
   // hd_142
   float inicioPorcenCompre = 0.0;
@@ -2238,12 +2238,12 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   strcat(nombreArchivoReconsImg, nombreArReconsImg);
   clock_t tiempoCalculoMV_AF;
   tiempoCalculoMV_AF = clock();
-  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPU);
+  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnosNxN, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPU);
   tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
   float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
   clock_t tiempoCalculoMU_AF;
   tiempoCalculoMU_AF = clock();
-  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnos, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPU);
+  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnosNxN, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPU);
   tiempoCalculoMU_AF = clock() - tiempoCalculoMU_AF;
   float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
   clock_t tiempoReconsFourierPartImag;
@@ -2699,6 +2699,7 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
       strcat(nombreDirSecCopia, numComoString);
       int thread_id = omp_get_thread_num();
       cudaSetDevice(thread_id);
+      af::setDevice(thread_id);
       calCompSegunAncho_Normal_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosEstFourier, tamBloque, thread_id);
       free(numComoString);
       free(nombreDirSecCopia);
@@ -2706,7 +2707,7 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
   }
 }
 
-void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque)
+void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque, float* matrizDeUnosNxN)
 {
   float inicioIntervaloEscalado = inicioIntervalo * delta_u;
   float finIntervaloEscalado = finIntervalo * delta_u;
@@ -2760,7 +2761,8 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
       strcat(nombreDirSecCopia, numComoString);
       int thread_id = omp_get_thread_num();
       cudaSetDevice(thread_id);
-      calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, thread_id);
+      af::setDevice(thread_id);
+      calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, thread_id, matrizDeUnosNxN);
       free(numComoString);
       free(nombreDirSecCopia);
     }
@@ -3131,76 +3133,10 @@ void filtroGaussiano()
 
 int main()
 {
-
-  // float limitesDeZonas[] = {1, 10, 20, 30, 40, 50};
-  // float cantPuntosPorZona[] = {2, 3, 4};
-  // int cantParesDePuntos = 3;
-  // linspaceNoEquiespaciado(limitesDeZonas, cantPuntosPorZona, cantParesDePuntos);
-  // exit(1);
-
-  // float limitesDeZonas[] = {1, 2, 3};
-  // float cantPuntosPorZona[] = {4, 3};
-  // int cantPtosLimites = 3;
-  // linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
-  // exit(1);
-
-  // int M = 1000;
-  // int K = 1000;
-  // int N = 1000;
-  // float* matrizA;
-  // cudaMallocManaged(&matrizA, M*K*sizeof(float));
-  // cudaMemset(matrizA, 0, M*K*sizeof(float));
-  // float* matrizB;
-  // cudaMallocManaged(&matrizB, K*N*sizeof(float));
-  // cudaMemset(matrizB, 0, K*N*sizeof(float));
-  // float* matrizC;
-  // cudaMallocManaged(&matrizC, M*N*sizeof(float));
-  // // cudaMemset(matrizC, 0, M*N*sizeof(float));
-  // // float* matrizD;
-  // // cudaMallocManaged(&matrizD, M*N*sizeof(float));
-  // // cudaMemset(matrizD, 0, M*N*sizeof(float));
-  // float* resultado1;
-  // cudaMallocManaged(&resultado1, M*N*sizeof(float));
-  // float* resultado2;
-  // cudaMallocManaged(&resultado2, M*N*sizeof(float));
-  // for(int i=0; i<M*K; i=i+2)
-  // {
-  //   matrizA[i] = i+1;
-  // }
-  // // imprimirMatrizColumna(matrizA, M, K);
-  // for(int i=0; i<K*N; i=i+2)
-  // {
-  //   matrizB[i] = i+2;
-  // }
-  // // imprimirMatrizColumna(matrizB, K, N);
-  // int ngpus;
-  // cudaGetDeviceCount(&ngpus);
-  // printf(" CUDA-capable devices: %i\n", ngpus);
-  // int numGPU = 2;
-  // #pragma omp parallel num_threads(numGPU)
-  // {
-  //   int thread_id = omp_get_thread_num();
-  //   cudaSetDevice(thread_id);
-  //   long cantBloques = ceil((float) M*K/1024*numGPU);
-  //   hadamardProduct_kernel_multiGPU<<<cantBloques,1024>>>(matrizA, matrizB, resultado1, M, K, thread_id);
-  // }
-  // // cudaDeviceSynchronize();
-  // hadamardProduct2(matrizA, M, K, matrizB, resultado2, tamBloque, numGPU);
-  // for(int i=0; i<M*N; i++)
-  // {
-  //   if(resultado1[i] != resultado2[i])
-  //   {
-  //     printf("Diferencia encontrada.\n");
-  //     exit(-1);
-  //   }
-  // }
-  // exit(1);
-
-
   // PARAMETROS GENERALES
-  // long cantVisi = 15034;
+  // long cantVisi = 1000;
   // long inicio = 0;
-  // long fin = 15034;
+  // long fin = 1000;
 
   // long cantVisi = 30000;
   // long inicio = 0;
@@ -3287,7 +3223,7 @@ int main()
   // lectDeTXTcreadoDesdeMS(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal);
   lectDeTXTcreadoDesdeMSConLimite(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal, inicio, fin, cantVisi);
 
-  float* matrizDeUnos, *matrizDeUnosEstFourier;
+  float* matrizDeUnos, *matrizDeUnosEstFourier, *matrizDeUnosNxN;
   cudaMallocManaged(&matrizDeUnos, cantVisi*N*sizeof(float));
   for(long i=0; i<(cantVisi*N); i++)
   {
@@ -3297,6 +3233,11 @@ int main()
   for(long i=0; i<N; i++)
   {
     matrizDeUnosEstFourier[i] = 1.0;
+  }
+  cudaMallocManaged(&matrizDeUnosNxN, N*N*sizeof(float));
+  for(long i=0; i<N*N; i++)
+  {
+    matrizDeUnosNxN[i] = 1.0;
   }
 
 
@@ -3347,7 +3288,7 @@ int main()
   clock_t t;
   t = clock();
   // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-  calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
+  calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
   t = clock() - t;
   float time_taken = ((float)t)/CLOCKS_PER_SEC;
   char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*strlen(nombreArchivoTiempo)*strlen(nombreDirPrin)+sizeof(char)*3);
