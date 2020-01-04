@@ -798,7 +798,7 @@ void combinacionLinealMatrices(float al, float* matrizA, long cantFilas, long ca
 //   }
 // }
 //
-// void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado)
+// void transponerMatriz(float* matrizA, long cantFilasMatrizA, long cantColumnasMatrizA, float* resultado, int numGPU)
 // {
 //   long cantBloques = ceil((float) cantFilasMatrizA*cantColumnasMatrizA/1024);
 //   transponerMatriz_kernel<<<cantBloques,1024>>>(matrizA, resultado, cantFilasMatrizA, cantColumnasMatrizA);
@@ -1396,7 +1396,7 @@ float* hadamardProduct_conretorno(float* matrizA, long cantFilasMatrizA, long ca
   return resultado;
 }
 
-float* generarSiguienteColumna(int k, float* primero, int largo, float* segundo, float* xinf, int tamBloque, int numGPU)
+float* generarSiguienteColumna(int k, float* primero, long largo, float* segundo, float* xinf, int tamBloque, int numGPU)
 {
   float* primerVectorDif_paso1 = combinacionLinealMatrices_conretorno(sqrt(2.0/k), xinf, largo, 1, 0.0, xinf, tamBloque, numGPU);
   float* primerVectorDif_paso2 = hadamardProduct_conretorno(primerVectorDif_paso1, largo, 1, segundo, tamBloque, numGPU);
@@ -1408,7 +1408,7 @@ float* generarSiguienteColumna(int k, float* primero, int largo, float* segundo,
   return nuevo;
 }
 
-void reemplazarColumna(float* matriz, int numFilasARecorrer, int cantFilas, int* iinf, int indiceColumna, float* nuevaColumna)
+void reemplazarColumna(float* matriz, int numFilasARecorrer, long cantFilas, int* iinf, long indiceColumna, float* nuevaColumna)
 {
   for(int i=0;i<numFilasARecorrer;i++)
   {
@@ -1416,7 +1416,7 @@ void reemplazarColumna(float* matriz, int numFilasARecorrer, int cantFilas, int*
   }
 }
 
-float* hermite(float* x, int largoDeX, int deg, int tamBloque, int numGPU)
+float* hermite(float* x, long largoDeX, long deg, int tamBloque, int numGPU)
 {
   float limitGauss = 5;
   float rpi = sqrt(M_PI);
@@ -2147,7 +2147,7 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   char nombreArCoef_comp_real[] = "coefs_comp_real.txt";
   char nombreArInfoCompresion[] = "infoCompre.txt";
   char nombreArInfoTiemposEjecu[] = "infoTiemposEjecu.txt";
-  int n = N-1;
+  long n = N-1;
   float beta_factor = ancho;
 
 
@@ -2160,6 +2160,18 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   clock_t tiempoCalculoMV;
   tiempoCalculoMV = clock();
   float* MV = hermite(y_samp, cantVisi, n, tamBloque, numGPU);
+  // int contadorNoCeros = 0;
+  // for(long i=0; i<cantVisi*N; i++)
+  // {
+  //   // printf("%ld\n",i);
+  //   if(MV[i] != 0.0)
+  //   {
+  //       contadorNoCeros++;
+  //       // printf("En posi %ld es %f\n", i, MV[i]);
+  //   }
+  // }
+  // printf("%d\n", contadorNoCeros);
+  // exit(0);
   tiempoCalculoMV = clock() - tiempoCalculoMV;
   float tiempoTotalCalculoMV = ((float)tiempoCalculoMV)/CLOCKS_PER_SEC;
   printf("Calculo de MV completado.\n");
@@ -2221,7 +2233,6 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   free(nombreArchivoMin_real);
   free(nombreArchivoCoefs_real);
 
-
    // ############### CALCULO NIVEL DE INFORMACION ##############
   clock_t tiempoInfo;
   tiempoInfo = clock();
@@ -2230,7 +2241,6 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   float tiempoTotalInfo = ((float)tiempoInfo)/CLOCKS_PER_SEC;
   cudaFree(MU);
   cudaFree(MV);
-
 
    // ############### RECONSTRUCCION DEL PLANO GRILLEADO Y ALMACENAMIENTO DE LA RECONSTRUCCION DE LA IMAGEN ##############
   char* nombreArchivoReconsImg = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreDirSec)*strlen(nombreArReconsImg)*sizeof(char)+sizeof(char)*3);
@@ -2241,16 +2251,19 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosTamN, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
   float* coordenadasUCentrosCeldas = linspace((-N/2.0) * delta_u, ((N/2.0) - 1.0) * delta_u, N);
   combinacionLinealMatrices(0.5 * delta_u, matrizDeUnosTamN, N, 1, 1.0, coordenadasUCentrosCeldas, tamBloque, numGPU);
-  float maxu_AF = buscarMaximo(coordenadasUCentrosCeldas, N);
-  float maxv_AF = buscarMaximo(coordenadasVCentrosCeldas, N);
-  float max_radius_AF = maximoEntre2Numeros(maxu_AF, maxv_AF);
-  float beta_u_AF = beta_factor/max_radius_AF;
-  float K_AF = beta_u_AF * (sqrt(2*n+1)+1);
-  combinacionLinealMatrices(K_AF, coordenadasUCentrosCeldas, N, 1, 0.0, coordenadasUCentrosCeldas, tamBloque, numGPU);
-  combinacionLinealMatrices(K_AF, coordenadasVCentrosCeldas, N, 1, 0.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
+  combinacionLinealMatrices(0.0, coordenadasUCentrosCeldas, N, 1, K, coordenadasUCentrosCeldas, tamBloque, numGPU);
+  combinacionLinealMatrices(0.0, coordenadasVCentrosCeldas, N, 1, K, coordenadasVCentrosCeldas, tamBloque, numGPU);
   clock_t tiempoCalculoMV_AF;
   tiempoCalculoMV_AF = clock();
   float* MV_AF = hermite(coordenadasVCentrosCeldas, N, n, tamBloque, numGPU);
+  for(long i=0; i<N*N; i++)
+  {
+    if(MV_AF[i] != 0.0)
+    {
+        printf("En posi %ld es %f\n", i, MV_AF[i]);
+    }
+  }
+  // exit(0);
   tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
   float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
   clock_t tiempoCalculoMU_AF;
@@ -2260,19 +2273,6 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
   cudaFree(coordenadasVCentrosCeldas);
   cudaFree(coordenadasUCentrosCeldas);
-
-  // clock_t tiempoCalculoMV_AF;
-  // tiempoCalculoMV_AF = clock();
-  // float* MV_AF = calcularMV_Normal_estFourier(ancho, N, delta_v, matrizDeUnosTamN, tamBloque, numGPU);
-  // tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
-  // float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
-  // clock_t tiempoCalculoMU_AF;
-  // tiempoCalculoMU_AF = clock();
-  // float* MU_AF = calcularMV_Normal_estFourier(ancho, N, delta_u, matrizDeUnosTamN, tamBloque, numGPU);
-  // tiempoCalculoMU_AF = clock() - tiempoCalculoMU_AF;
-  // float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
-
-
   clock_t tiempoReconsFourierPartImag;
   tiempoReconsFourierPartImag = clock();
   float* estimacionFourier_ParteImag = estimacionDePlanoDeFourier(MV_AF, N, N, MC_imag, N, N, MU_AF, numGPU);
@@ -3105,7 +3105,7 @@ void calculoDeInfoCompre_BaseHermite(char nombreArchivo[], int maxIter, float to
   // float optimo = goldenMin_BaseNormal(u, v, w, delta_u, delta_v, cantVisi, N);
   // printf("El optimo esta en %.12f\n", optimo);
 
-  float limitesDeZonas[] = {0.1, 0.5, 1.0};
+  float limitesDeZonas[] = {0.205, 0.5, 1.0};
   float cantPuntosPorZona[] = {100, 50};
   int cantPtosLimites = 3;
   float* paramEvaInfo = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
@@ -3126,25 +3126,26 @@ void calculoDeInfoCompre_BaseHermite(char nombreArchivo[], int maxIter, float to
   float maxv = buscarMaximo(v, cantVisi);
   float max_radius = maximoEntre2Numeros(maxu,maxv);
 
-  // int i = 0;
-  #pragma omp parallel num_threads(4)
-  {
-    #pragma omp for schedule(dynamic, 1)
-    for(int i=0; i<cantParamEvaInfo; i++)
-    {
+  int i = 0;
+  // #pragma omp parallel num_threads(4)
+  // {
+  //   #pragma omp for schedule(dynamic, 1)
+  //   for(int i=0; i<cantParamEvaInfo; i++)
+  //   {
       char* numComoString = numAString(&i);
       sprintf(numComoString, "%d", i);
       char* nombreDirSecCopia = (char*) malloc(sizeof(char)*strlen(nombreDirSec)*strlen(numComoString));
       strcpy(nombreDirSecCopia, nombreDirSec);
       strcat(nombreDirSecCopia, numComoString);
-      int thread_id = omp_get_thread_num();
+      // int thread_id = omp_get_thread_num();
+      int thread_id = i;
       cudaSetDevice(thread_id);
       af::setDevice(thread_id);
       calCompSegunAncho_Hermite_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosEstFourier, max_radius, tamBloque, thread_id);
       free(numComoString);
       free(nombreDirSecCopia);
-    }
-  }
+  //   }
+  // }
 }
 
 void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque)
@@ -3181,8 +3182,8 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
   // float optimo = goldenMin_BaseNormal(u, v, w, delta_u, delta_v, cantVisi, N);
   // printf("El optimo esta en %.12f\n", optimo);
 
-  float limitesDeZonas[] = {0.5, 2.0, 3.0};
-  float cantPuntosPorZona[] = {100, 50};
+  float limitesDeZonas[] = {0.001, 2.0, 3.0};
+  float cantPuntosPorZona[] = {300, 100};
   int cantPtosLimites = 3;
   float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
   float* paramEvaInfo;
@@ -3203,10 +3204,10 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
   free(nombreArchivoDetallesLinspace);
 
   // int i = 0;
-  #pragma omp parallel num_threads(3)
+  #pragma omp parallel num_threads(4)
   {
-    // if( omp_get_thread_num() != 0)
-    // {
+    if( omp_get_thread_num() != 0)
+    {
       #pragma omp for schedule(dynamic, 1)
       for(int i=0; i<cantParamEvaInfo; i++)
       {
@@ -3222,7 +3223,7 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
         free(numComoString);
         free(nombreDirSecCopia);
       }
-    // }
+    }
   }
 }
 
@@ -3258,7 +3259,7 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
 
   // float* paramEvaInfo = linspace(inicioIntervaloEscalado, finIntervaloEscalado, cantParamEvaInfo);
 
-  float limitesDeZonas[] = {0.5, 2.0, 3.0};
+  float limitesDeZonas[] = {0.1, 2.0, 3.0};
   float cantPuntosPorZona[] = {100, 50};
   int cantPtosLimites = 3;
   float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
@@ -3280,9 +3281,9 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
   free(nombreArchivoDetallesLinspace);
 
   // int i = 0;
-  #pragma omp parallel num_threads(4)
-  {
-    #pragma omp for schedule(dynamic, 1)
+  // #pragma omp parallel num_threads(4)
+  // {
+  //   #pragma omp for schedule(dynamic, 1)
     for(int i=0; i<cantParamEvaInfo; i++)
     {
       char* numComoString = numAString(&i);
@@ -3290,14 +3291,15 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
       char* nombreDirSecCopia = (char*) malloc(sizeof(char)*strlen(nombreDirSec)*strlen(numComoString));
       strcpy(nombreDirSecCopia, nombreDirSec);
       strcat(nombreDirSecCopia, numComoString);
-      int thread_id = omp_get_thread_num();
+      // int thread_id = omp_get_thread_num();
+      int thread_id = 0;
       cudaSetDevice(thread_id);
       af::setDevice(thread_id);
       calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, thread_id, matrizDeUnosNxN);
       free(numComoString);
       free(nombreDirSecCopia);
     }
-  }
+  // }
 }
 
 void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char nombreDirPrin[], float ancho, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPU)
@@ -3663,9 +3665,9 @@ void filtroGaussiano()
 // }
 
 
-
 int main()
 {
+
   // int largo = 5;
   // float *x;
   // cudaMallocManaged(&x, largo*sizeof(float));
@@ -3694,9 +3696,11 @@ int main()
   // for i in {320..799}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte2/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
   // sudo scp /disk2/tmp/curvas_hd142_normal/* /home/yoyisaurio/Desktop/hd142_normal/
 
-  long cantVisi = 1000;
+
+  // for i in {0..152}; do cp /disk2/tmp/experi_hd142_Normal_linspacevariable_visi153/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Normal_linspacevariable_visi153/curva$i.txt; done
+  long cantVisi = 15034;
   long inicio = 0;
-  long fin = 1000;
+  long fin = 15034;
 
   int tamBloque = 1024;
   int N = 512;
@@ -3737,6 +3741,10 @@ int main()
   // char nombreArchivo[] = "./co65.ms";
   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
 
+  // ########### PC-LAB ##############
+  char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+  char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+
   // // ########### BEAM ##############
   // char nombreArchivo[] = "./HLTau_B6cont.calavg.tav300s";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
@@ -3749,9 +3757,9 @@ int main()
   // char nombreArchivo[] = "./co65.ms";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // ########### BEAM ##############
-  char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
-  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // // ########### BEAM ##############
+  // char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // // ########### BEAM ##############
   // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
@@ -3792,6 +3800,85 @@ int main()
     matrizDeUnosNxN[i] = 1.0;
   }
 
+  // int cantParamEvaInfo = 153;
+  // float limitesDeZonas[] = {0.001, 2.0, 3.0};
+  // float cantPuntosPorZona[] = {100, 50};
+  // int cantPtosLimites = 3;
+  // float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+  // float* paramEvaInfo;
+  // cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
+  // combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, 0);
+  // FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_rect.txt", "w");
+  // for(int i=0; i<cantParamEvaInfo; i++)
+  // {
+  //   float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, paramEvaInfo[i], matrizDeUnos, tamBloque, 0);
+  //   float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, paramEvaInfo[i], matrizDeUnos, tamBloque, 0);
+  //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, 0);
+  //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+  //   free(medidasDeInfo);
+  //   cudaFree(MV);
+  //   cudaFree(MU);
+  //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo_pre[i], medidaSumaDeLaDiagonal);
+  // }
+  // cudaFree(paramEvaInfo_pre);
+  // fclose(archivito);
+  // exit(1);
+
+  int cantParamEvaInfo = 203;
+  float limitesDeZonas[] = {0.001, 2.0, 3.0};
+  float cantPuntosPorZona[] = {150, 50};
+  int cantPtosLimites = 3;
+  float* paramEvaInfo = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+  FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_hermite.txt", "w");
+  int n = N-1;
+  float maxu = buscarMaximo(u, cantVisi);
+  float maxv = buscarMaximo(v, cantVisi);
+  float max_radius = maximoEntre2Numeros(maxu,maxv);
+  for(int i=0; i<cantParamEvaInfo; i++)
+  {
+    float beta_u = paramEvaInfo[i]/max_radius;
+    float K = beta_u * (sqrt(2*n+1)+1);
+    float* x_samp = combinacionLinealMatrices_conretorno(K, u, cantVisi, 1, 0.0, u, tamBloque, 0);
+    float* y_samp = combinacionLinealMatrices_conretorno(K, v, cantVisi, 1, 0.0, v, tamBloque, 0);
+    float* MV = hermite(y_samp, cantVisi, n, tamBloque, 0);
+    float* MU = hermite(x_samp, cantVisi, n, tamBloque, 0);
+    cudaFree(x_samp);
+    cudaFree(y_samp);
+    float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, 1024, 0);
+    float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+    free(medidasDeInfo);
+    cudaFree(MV);
+    cudaFree(MU);
+    fprintf(archivito, "%.12f %.12e\n", paramEvaInfo[i], medidaSumaDeLaDiagonal);
+  }
+  fclose(archivito);
+  exit(1);
+
+
+  // int cantParamEvaInfo = 203;
+  // float limitesDeZonas[] = {0.001, 2.0, 3.0};
+  // float cantPuntosPorZona[] = {150, 50};
+  // int cantPtosLimites = 3;
+  // float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+  // float* paramEvaInfo;
+  // cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
+  // combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, 0);
+  // FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_normal.txt", "w");
+  // for(int i=0; i<cantParamEvaInfo; i++)
+  // {
+  //   float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, paramEvaInfo[i], 1024, 0);
+  //   float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, paramEvaInfo[i], 1024, 0);
+  //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, 1024, 0);
+  //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+  //   free(medidasDeInfo);
+  //   cudaFree(MV);
+  //   cudaFree(MU);
+  //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo_pre[i], medidaSumaDeLaDiagonal);
+  // }
+  // fclose(archivito);
+  // cudaFree(paramEvaInfo_pre);
+  // exit(1);
+
 
   // float* resultado1, * resultado2;
   // cudaMallocManaged(&resultado1, cantVisi*N*sizeof(float));
@@ -3823,31 +3910,32 @@ int main()
   // exit(1);
 
   float cotaEnergia = 0.99;
+  char nombreDirPrin[] = "probando";
   // char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
   // char nombreDirPrin[] = "experi_hd142_Normal_visi800";
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_linspacevariable_Rect_visi350";
   // char nombreDirPrin[] = "/disk2/tmp/experi_HLTau_Band6_CalibratedData_linspacevariable_Rect_UnMillon";
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi153";
-  char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Hermite_linspacevariable_visi153";
+  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Hermite_linspacevariable_visi153";
+  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi400";
   char nombreDirSec[] = "ite";
   char nombreDirTer[] = "compresiones";
   char nombreArchivoTiempo[] = "tiempo.txt";
-  int cantParamEvaInfo = 153;
-  // int cantParamEvaInfo = 800;
+  // int cantParamEvaInfo = 153;
+  // int cantParamEvaInfo = 400;
 
-  float inicioIntervalo = 0.1;
-  float finIntervalo = 1.0;
+  // float inicioIntervalo = 0.205;
+  // float finIntervalo = 1.0;
 
-  // float inicioIntervalo = 0.8;
-  // float inicioIntervalo = 0.5;
-  // float finIntervalo = 3.0;
+  float inicioIntervalo = 0.001;
+  float finIntervalo = 3.0;
   float tolGolden = 1E-12;
   int iterActual = 0;
   clock_t t;
   t = clock();
-  calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
+  // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
   // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-  // calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+  calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
   t = clock() - t;
   float time_taken = ((float)t)/CLOCKS_PER_SEC;
   char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*strlen(nombreArchivoTiempo)*strlen(nombreDirPrin)+sizeof(char)*3);
@@ -3869,3 +3957,215 @@ int main()
   cudaFree(matrizDeUnos);
   cudaFree(matrizDeUnosEstFourier);
 }
+
+//
+// int main()
+// {
+//   // int largo = 5;
+//   // float *x;
+//   // cudaMallocManaged(&x, largo*sizeof(float));
+//   // x[0] = 1;
+//   // x[1] = 2;
+//   // x[2] = 6;
+//   // x[3] = 10;
+//   // x[4] = 20;
+//   // float* salida = hermite(x, largo, 3, 1024, 0);
+//   // imprimirMatrizColumna(salida, largo, 4);
+//   // exit(1);
+//
+//   // PARAMETROS GENERALES
+//   // long cantVisi = 1000;
+//   // long inicio = 0;
+//   // long fin = 1000;
+//
+//   // long cantVisi = 30000;
+//   // long inicio = 0;
+//   // long fin = 30000;
+//
+//   // for i in {0..31}; do cp /disk2/tmp/experi_hd142_Normal_linspacevariable_visi153/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_peque/curva$i.txt; done
+//   // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_peque/* /home/yoyisaurio/Desktop/pequeno/
+//
+//   // for i in {0..320}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte1/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
+//   // for i in {320..799}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte2/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
+//   // sudo scp /disk2/tmp/curvas_hd142_normal/* /home/yoyisaurio/Desktop/hd142_normal/
+//
+//   long cantVisi = 2000000;
+//   long inicio = 0;
+//   long fin = 2000000;
+//
+//   int tamBloque = 1024;
+//   // int N = 512;
+//   long N = 1600; //HLTau_B6cont.calavg.tav300s
+//   int maxIter = 100;
+//
+//   float tolGrad = 1E-12;
+//
+//   // float delta_x = 0.02;
+//   float delta_x = 0.005; //HLTau_B6cont.calavg.tav300s
+//   // float delta_x = 0.03; //co65
+//   float delta_x_rad = (delta_x * M_PI)/648000.0;
+//   float delta_u = 1.0/(N*delta_x_rad);
+//   float delta_v = 1.0/(N*delta_x_rad);
+//
+//   //PARAMETROS PARTICULARES DE BASE RECT
+//   float estrechezDeBorde = 1000.0;
+//
+//   // float frecuencia;
+//   // float *u, *v, *w, *visi_parteImaginaria, *visi_parteReal;
+//   // cudaMallocManaged(&u, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&v, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&w, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&visi_parteImaginaria, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&visi_parteReal, cantVisi*sizeof(float));
+//   // char nombreArchivo[] = "hd142_b9cont_self_tav.0.0.txt";
+//   // lecturaDeTXT(nombreArchivo, &frecuencia, u, v, w, visi_parteImaginaria, visi_parteReal, cantVisi);
+//
+//   // // ########### NOTEBOOK ##############
+//   // char nombreArchivo[] = "/home/yoyisaurio/Desktop/HLTau_B6cont.calavg.tav300s";
+//   // char comandoCasaconScript[] = "/home/yoyisaurio/casa-pipeline-release-5.6.2-2.el7/bin/casa -c /home/yoyisaurio/Desktop/proyecto/deMSaTXT.py";
+//
+//   // // ########### PC-LAB ##############
+//   // char nombreArchivo[] = "/home/rarmijo/Desktop/proyecto/HLTau_B6cont.calavg.tav300s";
+//   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+//
+//   // // ########### PC-LAB ##############
+//   // char nombreArchivo[] = "./co65.ms";
+//   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+//
+//   // // ########### PC-LAB ##############
+//   char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
+//   char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./HLTau_B6cont.calavg.tav300s";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./FREQ78.ms";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./co65.ms";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // char* comandoScriptMSaTXT = (char*) malloc(strlen(comandoCasaconScript)*strlen(nombreArchivo)*sizeof(char)+sizeof(char)*3);
+//   // strcpy(comandoScriptMSaTXT, comandoCasaconScript);
+//   // strcat(comandoScriptMSaTXT, " ");
+//   // strcat(comandoScriptMSaTXT, nombreArchivo);
+//   // system(comandoScriptMSaTXT);
+//   // free(comandoScriptMSaTXT);
+//
+//
+//   lectCantVisi(nombreArchivo, &cantVisi);
+//   float *u, *v, *w, *visi_parteImaginaria, *visi_parteReal;
+//   cudaMallocManaged(&u, cantVisi*sizeof(float));
+//   cudaMallocManaged(&v, cantVisi*sizeof(float));
+//   cudaMallocManaged(&w, cantVisi*sizeof(float));
+//   cudaMallocManaged(&visi_parteImaginaria, cantVisi*sizeof(float));
+//   cudaMallocManaged(&visi_parteReal, cantVisi*sizeof(float));
+//   lectDeTXTcreadoDesdeMS(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal);
+//   // lectDeTXTcreadoDesdeMSConLimite(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal, inicio, fin, cantVisi);
+//
+//   float* matrizDeUnos, *matrizDeUnosEstFourier, *matrizDeUnosNxN;
+//   cudaMallocManaged(&matrizDeUnos, cantVisi*N*sizeof(float));
+//   for(long i=0; i<(cantVisi*N); i++)
+//   {
+//     matrizDeUnos[i] = 1.0;
+//   }
+//   cudaMallocManaged(&matrizDeUnosEstFourier, N*sizeof(float));
+//   for(long i=0; i<N; i++)
+//   {
+//     matrizDeUnosEstFourier[i] = 1.0;
+//   }
+//   cudaMallocManaged(&matrizDeUnosNxN, N*N*sizeof(float));
+//   for(long i=0; i<N*N; i++)
+//   {
+//     matrizDeUnosNxN[i] = 1.0;
+//   }
+//
+//
+//   // float* resultado1, * resultado2;
+//   // cudaMallocManaged(&resultado1, cantVisi*N*sizeof(float));
+//   // cudaMallocManaged(&resultado2, cantVisi*N*sizeof(float));
+//   //
+//   // printf("...Comenzando calculo de MV...\n");
+//   // float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
+//   // printf("Calculo de MV completado.\n");
+//   //
+//   // printf("...Comenzando calculo de MU...\n");
+//   // float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
+//   // printf("Calculo de MU completado.\n");
+//   //
+//   //
+//   // clock_t tiempoCalculo1;
+//   // tiempoCalculo1 = clock();
+//   // multMatrices(MV, cantVisi, N, MU, N, resultado1);
+//   // tiempoCalculo1 = clock() - tiempoCalculo1;
+//   // float tiempoTotalCalculo1 = ((float)tiempoCalculo1)/CLOCKS_PER_SEC;
+//   //
+//   // clock_t tiempoCalculo2;
+//   // tiempoCalculo2 = clock();
+//   // // multMatrices3(MV, cantVisi, N, MU, N, resultado2);
+//   // tiempoCalculo2 = clock() - tiempoCalculo2;
+//   // float tiempoTotalCalculo2 = ((float)tiempoCalculo2)/CLOCKS_PER_SEC;
+//   //
+//   // printf("La multiplicacion con cublas tomo %.12e segundos mientras que la dispersa tomo %.12e segundos.\n", tiempoTotalCalculo2, tiempoTotalCalculo1);
+//   //
+//   // exit(1);
+//
+//   float cotaEnergia = 0.99;
+//   // char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
+//   // char nombreDirPrin[] = "experi_hd142_Normal_visi800";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_linspacevariable_Rect_visi350";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_HLTau_Band6_CalibratedData_linspacevariable_Rect_UnMillon";
+//   char nombreDirPrin[] = "experi_HLTau_Band6_CalibratedData_linspacevariable_Rect_DosMillon";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi153";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Hermite_linspacevariable_visi153";
+//   char nombreDirSec[] = "ite";
+//   char nombreDirTer[] = "compresiones";
+//   char nombreArchivoTiempo[] = "tiempo.txt";
+//   int cantParamEvaInfo = 153;
+//   // int cantParamEvaInfo = 800;
+//
+//   // float inicioIntervalo = 0.1;
+//   // float finIntervalo = 1.0;
+//
+//   // float inicioIntervalo = 0.8;
+//   float inicioIntervalo = 0.1;
+//   float finIntervalo = 3.0;
+//   float tolGolden = 1E-12;
+//   int iterActual = 0;
+//   clock_t t;
+//   t = clock();
+//   // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
+//   // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
+//   calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+//   t = clock() - t;
+//   float time_taken = ((float)t)/CLOCKS_PER_SEC;
+//   char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*strlen(nombreArchivoTiempo)*strlen(nombreDirPrin)+sizeof(char)*3);
+//   strcpy(nombreCompletoArchivoTiempo, nombreDirPrin);
+//   strcat(nombreCompletoArchivoTiempo, "/");
+//   strcat(nombreCompletoArchivoTiempo, nombreArchivoTiempo);
+//   FILE* archivoTiempo = fopen(nombreCompletoArchivoTiempo, "w");
+//   float minutitos = time_taken/60;
+//   float horas = minutitos/60;
+//   printf("El tiempo de ejecucion fue %.12f segundos o %.12f minutos o %.12f horas.\n", time_taken, minutitos, horas);
+//   fprintf(archivoTiempo, "El tiempo de ejecucion fue %.12f segundos o %.12f minutos o %.12f horas.\n", time_taken, minutitos, horas);
+//   fclose(archivoTiempo);
+//
+//   cudaFree(u);
+//   cudaFree(v);
+//   cudaFree(w);
+//   cudaFree(visi_parteImaginaria);
+//   cudaFree(visi_parteReal);
+//   cudaFree(matrizDeUnos);
+//   cudaFree(matrizDeUnosEstFourier);
+// }
