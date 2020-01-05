@@ -60,72 +60,6 @@ struct parametros_BaseNormal
 
 #define sqrt5 2.236067977499789696
 
-void findMultipleBestGPUs(int &num_of_devices, int *device_ids)
-{
-  // Find the best CUDA capable GPU device
-  int current_device = 0;
-
-  int device_count;
-  checkCudaErrors(cudaGetDeviceCount(&device_count));
-  typedef struct gpu_perf_t {
-    uint64_t compute_perf;
-    int device_id;
-  } gpu_perf;
-
-  gpu_perf *gpu_stats = (gpu_perf *)malloc(sizeof(gpu_perf) * device_count);
-
-  cudaDeviceProp deviceProp;
-  int devices_prohibited = 0;
-  while (current_device < device_count) {
-    cudaGetDeviceProperties(&deviceProp, current_device);
-
-    // If this GPU is not running on Compute Mode prohibited,
-    // then we can add it to the list
-    int sm_per_multiproc;
-    if (deviceProp.computeMode != cudaComputeModeProhibited) {
-      if (deviceProp.major == 9999 && deviceProp.minor == 9999) {
-        sm_per_multiproc = 1;
-      } else {
-        sm_per_multiproc =
-            _ConvertSMVer2Cores(deviceProp.major, deviceProp.minor);
-      }
-
-      gpu_stats[current_device].compute_perf =
-          (uint64_t)deviceProp.multiProcessorCount * sm_per_multiproc *
-          deviceProp.clockRate;
-      gpu_stats[current_device].device_id = current_device;
-
-    } else {
-      devices_prohibited++;
-    }
-
-    ++current_device;
-  }
-  if (devices_prohibited == device_count) {
-    fprintf(stderr,
-            "gpuGetMaxGflopsDeviceId() CUDA error:"
-            " all devices have compute mode prohibited.\n");
-    exit(EXIT_FAILURE);
-  } else {
-    gpu_perf temp_elem;
-    // Sort the GPUs by highest compute perf.
-    for (int i = 0; i < current_device - 1; i++) {
-      for (int j = 0; j < current_device - i - 1; j++) {
-        if (gpu_stats[j].compute_perf < gpu_stats[j + 1].compute_perf) {
-          temp_elem = gpu_stats[j];
-          gpu_stats[j] = gpu_stats[j + 1];
-          gpu_stats[j + 1] = temp_elem;
-        }
-      }
-    }
-
-    for (int i = 0; i < num_of_devices; i++) {
-      device_ids[i] = gpu_stats[i].device_id;
-    }
-  }
-  free(gpu_stats);
-}
-
 char* numAString(int* numero)
 {
   int cantCarac = (*numero)/10 + 1;
@@ -1322,10 +1256,10 @@ float* calcularMV_Rect(float* v, float delta_v, long cantVisi, long N, float est
   return MV;
 }
 
-float* calcularMV_Rect_estFourier(float ancho, long N, float delta_v, float* matrizDeUnos, float estrechezDeBorde, float* matrizDeUnosEstFourier, int tamBloque, int numGPU)
+float* calcularMV_Rect_estFourier(float ancho, long N, float delta_v, float* matrizDeUnos, float estrechezDeBorde, float* matrizDeUnosTamN, int tamBloque, int numGPU)
 {
   float* coordenadasVCentrosCeldas = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
-  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
+  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosTamN, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
   float* MV_AF = calcularMV_Rect(coordenadasVCentrosCeldas, delta_v, N, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPU);
   cudaFree(coordenadasVCentrosCeldas);
   return MV_AF;
@@ -1374,10 +1308,10 @@ float* calcularMV_Normal(float* v, float delta_v, long cantVisi, long N, float a
 //   return MV;
 // }
 
-float* calcularMV_Normal_estFourier(float anchoV, long N, float delta_v, float* matrizDeUnosEstFourier, int tamBloque, int numGPU)
+float* calcularMV_Normal_estFourier(float anchoV, long N, float delta_v, float* matrizDeUnosTamN, int tamBloque, int numGPU)
 {
   float* coordenadasVCentrosCeldas = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
-  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
+  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosTamN, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
   float* MV_AF = calcularMV_Normal(coordenadasVCentrosCeldas, delta_v, N, N, anchoV, tamBloque, numGPU);
   cudaFree(coordenadasVCentrosCeldas);
   return MV_AF;
@@ -1404,10 +1338,10 @@ float* calcularMV_InvCuadra(float* v, float delta_v, long cantVisi, long N, floa
   return MV;
 }
 
-float* calcularMV_InvCuadra_estFourier(float anchoV, long N, float delta_v, float* matrizDeUnosEstFourier, int tamBloque, int numGPU)
+float* calcularMV_InvCuadra_estFourier(float anchoV, long N, float delta_v, float* matrizDeUnosTamN, int tamBloque, int numGPU)
 {
   float* coordenadasVCentrosCeldas = linspace((-N/2.0) * delta_v, ((N/2.0) - 1.0) * delta_v, N);
-  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosEstFourier, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
+  combinacionLinealMatrices(0.5 * delta_v, matrizDeUnosTamN, N, 1, 1.0, coordenadasVCentrosCeldas, tamBloque, numGPU);
   float* MV_AF = calcularMV_InvCuadra(coordenadasVCentrosCeldas, delta_v, N, N, anchoV, tamBloque, numGPU);
   cudaFree(coordenadasVCentrosCeldas);
   return MV_AF;
@@ -3319,6 +3253,31 @@ void lectDeTXTcreadoDesdeMSConLimite(char nombreArchivo[], float* u, float* v, f
   fclose(fp);
 }
 
+void lecturaDeTXTDeCoefs(char nombreArchivo[], float* MC, long cantFilas, long cantColumnas)
+{
+  long contador = 0;
+  FILE *fp;
+  size_t len = 0;
+  char *line = NULL;
+  fp = fopen(nombreArchivo, "r");
+  if (fp == NULL)
+  {
+      printf("No se pudo abrir el archivo %s",nombreArchivo);
+      exit(0);
+  }
+  for(int i=0; i<cantFilas; i++)
+  {
+    getline(&line, &len, fp);
+    MC[0*cantFilas+i] = atof(strtok(line, " "));
+    for(int j=1; j<cantColumnas; j++)
+    {
+      MC[j*cantFilas+i] = atof(strtok(NULL, " "));
+    }
+  }
+  free(line);
+  fclose(fp);
+}
+
 void escrituraDeArchivoConParametros_Hermite(char nombreArchivoPara[], char nombreArchivo[], char nombreDirPrin[], int cantVisi, int N, int maxIter, float tolGrad)
 {
   time_t t = time(NULL);
@@ -3362,7 +3321,7 @@ void escrituraDeArchivoConParametros_Rect(char nombreArchivoPara[], char nombreA
   fclose(archivoDePara);
 }
 
-void calculoDeInfoCompre_BaseHermite(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque)
+void calculoDeInfoCompre_BaseHermite(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque)
 {
   char nombreArDetLinspace[] = "detalleslinspace.txt";
   float inicioIntervaloEscalado = inicioIntervalo * delta_u;
@@ -3432,14 +3391,14 @@ void calculoDeInfoCompre_BaseHermite(char nombreArchivo[], int maxIter, float to
       int thread_id = i;
       cudaSetDevice(thread_id);
       af::setDevice(thread_id);
-      calCompSegunAncho_Hermite_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosEstFourier, max_radius, tamBloque, thread_id);
+      calCompSegunAncho_Hermite_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, max_radius, tamBloque, thread_id);
       free(numComoString);
       free(nombreDirSecCopia);
   //   }
   // }
 }
 
-void calculoDeInfoCompre_BaseInvCuadra(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque)
+void calculoDeInfoCompre_BaseInvCuadra(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque)
 {
   char nombreArDetLinspace[] = "detalleslinspace.txt";
   float inicioIntervaloEscalado = inicioIntervalo * delta_u;
@@ -3491,7 +3450,7 @@ void calculoDeInfoCompre_BaseInvCuadra(char nombreArchivo[], int maxIter, float 
   free(nombreArchivoDetallesLinspace);
 
   // int i = 0;
-  #pragma omp parallel num_threads(4)
+  #pragma omp parallel num_threads(70)
   {
       #pragma omp for schedule(dynamic, 1)
       for(int i=0; i<cantParamEvaInfo; i++)
@@ -3502,16 +3461,17 @@ void calculoDeInfoCompre_BaseInvCuadra(char nombreArchivo[], int maxIter, float 
         strcpy(nombreDirSecCopia, nombreDirSec);
         strcat(nombreDirSecCopia, numComoString);
         int thread_id = omp_get_thread_num();
-        cudaSetDevice(thread_id);
-        af::setDevice(thread_id);
-        calCompSegunAncho_InvCuadra_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, 0.13*delta_u, cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosEstFourier, tamBloque, thread_id);
+        int deviceId = thread_id%4;
+        cudaSetDevice(deviceId);
+        af::setDevice(deviceId);
+        calCompSegunAncho_InvCuadra_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId);
         free(numComoString);
         free(nombreDirSecCopia);
       }
   }
 }
 
-void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque)
+void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque)
 {
   char nombreArDetLinspace[] = "detalleslinspace.txt";
   float inicioIntervaloEscalado = inicioIntervalo * delta_u;
@@ -3576,14 +3536,14 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
         int thread_id = omp_get_thread_num();
         cudaSetDevice(thread_id);
         af::setDevice(thread_id);
-        calCompSegunAncho_Normal_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosEstFourier, tamBloque, thread_id);
+        calCompSegunAncho_Normal_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, thread_id);
         free(numComoString);
         free(nombreDirSecCopia);
       }
   }
 }
 
-void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosEstFourier, float estrechezDeBorde, int tamBloque, float* matrizDeUnosNxN)
+void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGrad, float tolGolden, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float cotaEnergia, char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], int cantParamEvaInfo, float inicioIntervalo, float finIntervalo, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, float* matrizDeUnosNxN)
 {
   char nombreArDetLinspace[] = "detalleslinspace.txt";
   float inicioIntervaloEscalado = inicioIntervalo * delta_u;
@@ -3660,11 +3620,353 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
       // int thread_id = 0;
       cudaSetDevice(thread_id);
       af::setDevice(thread_id);
-      calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, thread_id, matrizDeUnosNxN);
+      calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, estrechezDeBorde, tamBloque, thread_id, matrizDeUnosNxN);
       free(numComoString);
       free(nombreDirSecCopia);
     }
   }
+}
+
+void lecturaDeArchivo_infoCompre(char nombreArchivo[], int* vectorDeNumItera, float* vectorDeAnchos_EnDeltaU, float* vectorDeAnchos_Real, int largoVector)
+{
+  // int contador = 0;
+  FILE *fp;
+  size_t len = 0;
+  char *line = NULL;
+  ssize_t read;
+  fp = fopen(nombreArchivo, "r");
+  if (fp == NULL)
+  {
+      printf("No se pudo abrir el archivo %s",nombreArchivo);
+      exit(0);
+  }
+  for(int i=0; i<largoVector; i++)
+  {
+    if((read = getline(&line, &len, fp)) == -1)
+    {
+      printf("Error en lectura de archivo infoCompre\n");
+      exit(-1);
+    }
+    vectorDeNumItera[i] = atoi(strtok(line, " "));
+    vectorDeAnchos_EnDeltaU[i] = atof(strtok(NULL, " "));
+    vectorDeAnchos_Real[i] = atof(strtok(NULL, " "));
+    printf("Num Ite: %d, Ancho en delta_u: %f, Ancho real: %f\n", vectorDeNumItera[i], vectorDeAnchos_EnDeltaU[i], vectorDeAnchos_Real[i]);
+    // contador++;
+	}
+  // printf("%d lineas leidas del archivo infoCompre.\n", contador);
+  free(line);
+  fclose(fp);
+}
+
+char** lecturaDeNombresDeArchivo(char nombreArchivo[], int* cantLineasPorArchivo, int cantArchivos, int* largoDeNombres)
+{
+  char** nombreDeArchivosInfoCompre = (char**) malloc(sizeof(char)*cantArchivos);
+  int contador = 0;
+  FILE *fp;
+  size_t len = 0;
+  char *line = NULL;
+  ssize_t read;
+  fp = fopen(nombreArchivo, "r");
+  if (fp == NULL)
+  {
+      printf("No se pudo abrir el archivo %s",nombreArchivo);
+      exit(0);
+  }
+  for(int i=0; i<cantArchivos; i++)
+  {
+    if((read = getline(&line, &len, fp)) == -1)
+    {
+      printf("Error en lectura de archivo con nombres de archivo.\n");
+      exit(-1);
+    }
+    nombreDeArchivosInfoCompre[i] = (char*) malloc(sizeof(char)*len);
+    largoDeNombres[i] = len;
+    strcpy(nombreDeArchivosInfoCompre[i], strtok(line, " "));
+    cantLineasPorArchivo[i] = atoi(strtok(NULL, " "));
+    printf("%s\n", nombreDeArchivosInfoCompre[i]);
+    printf("Las lineas a leer para este archivo son %d\n", cantLineasPorArchivo[i]);
+    contador++;
+	}
+  printf("%d lineas con nombres de archivo leidos.\n", contador);
+  free(line);
+  fclose(fp);
+  return nombreDeArchivosInfoCompre;
+}
+
+void reciclador_calCompSegunAncho_Rect_escritura(float* MC_imag, float* MC_real, char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float ancho_enDeltaU, int iterActual, float* u, float* v, float* w, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque, int numGPU, float* matrizDeUnosNxN, float estrechezDeBorde)
+{
+  // hd_142
+  float inicioPorcenCompre = 0.0;
+  // float terminoPorcenCompre = 0.2;
+  int cantPorcen = 101;
+
+
+  // ############### CONFIG. DE NOMBRES DE ARCHIVOS  ##############
+  char nombreArReconsImg[] = "reconsImg.fit";
+  char nombreArReconsCompreImg[] = "reconsCompreImg.fit";
+  char nombreArMin_imag[] = "minCoefs_imag.txt";
+  char nombreArCoef_imag[] = "coefs_imag.txt";
+  char nombreArCoef_comp_imag[] = "coefs_comp_imag.txt";
+  char nombreArMin_real[] = "minCoefs_real.txt";
+  char nombreArCoef_real[] = "coefs_real.txt";
+  char nombreArCoef_comp_real[] = "coefs_comp_real.txt";
+  char nombreArInfoCompresion[] = "infoCompre.txt";
+  char nombreArInfoTiemposEjecu[] = "infoTiemposEjecu.txt";
+
+
+  // ############### CALCULO DE MU Y MV - CREACION DE DIRECTORIO SEGUNDARIO  ##############
+  printf("...Comenzando calculo de MV...\n");
+  clock_t tiempoCalculoMV;
+  tiempoCalculoMV = clock();
+  float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPU);
+  tiempoCalculoMV = clock() - tiempoCalculoMV;
+  float tiempoTotalCalculoMV = ((float)tiempoCalculoMV)/CLOCKS_PER_SEC;
+  printf("Calculo de MV completado.\n");
+
+  printf("...Comenzando calculo de MU...\n");
+  clock_t tiempoCalculoMU;
+  tiempoCalculoMU = clock();
+  float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, ancho, matrizDeUnos, tamBloque, numGPU);
+  tiempoCalculoMU = clock() - tiempoCalculoMU;
+  float tiempoTotalCalculoMU = ((float)tiempoCalculoMU)/CLOCKS_PER_SEC;
+  printf("Calculo de MU completado.\n");
+
+  char* rutaADirecSec = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreDirSec)*sizeof(char)+sizeof(char)*3);
+  strcpy(rutaADirecSec, nombreDirPrin);
+  strcat(rutaADirecSec, "/");
+  strcat(rutaADirecSec, nombreDirSec);
+  if(mkdir(rutaADirecSec, 0777) == -1)
+  {
+      printf("ERROR: No se pudo crear subdirectorio.");
+      printf("PROGRAMA ABORTADO.\n");
+      exit(0);
+  }
+  strcat(rutaADirecSec, "/");
+
+
+  // ############### CALCULO NIVEL DE INFORMACION ##############
+  clock_t tiempoInfo;
+  tiempoInfo = clock();
+  float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, numGPU);
+  tiempoInfo = clock() - tiempoInfo;
+  float tiempoTotalInfo = ((float)tiempoInfo)/CLOCKS_PER_SEC;
+  cudaFree(MU);
+  cudaFree(MV);
+
+  clock_t tiempoMinPartImag;
+  tiempoMinPartImag = clock();
+  tiempoMinPartImag = clock() - tiempoMinPartImag;
+  float tiempoTotalMinPartImag = ((float)tiempoMinPartImag)/CLOCKS_PER_SEC;
+  clock_t tiempoMinPartReal;
+  tiempoMinPartReal = clock();
+  tiempoMinPartReal = clock() - tiempoMinPartReal;
+  float tiempoTotalMinPartReal = ((float)tiempoMinPartReal)/CLOCKS_PER_SEC;
+
+  // ############### RECONSTRUCCION DEL PLANO GRILLEADO Y ALMACENAMIENTO DE LA RECONSTRUCCION DE LA IMAGEN ##############
+  char* nombreArchivoReconsImg = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreDirSec)*strlen(nombreArReconsImg)*sizeof(char)+sizeof(char)*3);
+  strcpy(nombreArchivoReconsImg, rutaADirecSec);
+  strcat(nombreArchivoReconsImg, nombreArReconsImg);
+  clock_t tiempoCalculoMV_AF;
+  tiempoCalculoMV_AF = clock();
+  float* MV_AF = calcularMV_Rect_estFourier(ancho, N, delta_v, matrizDeUnosNxN, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPU);
+  tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
+  float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
+  clock_t tiempoCalculoMU_AF;
+  tiempoCalculoMU_AF = clock();
+  float* MU_AF = calcularMV_Rect_estFourier(ancho, N, delta_u, matrizDeUnosNxN, estrechezDeBorde, matrizDeUnosTamN, tamBloque, numGPU);
+  tiempoCalculoMU_AF = clock() - tiempoCalculoMU_AF;
+  float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
+  clock_t tiempoReconsFourierPartImag;
+  tiempoReconsFourierPartImag = clock();
+  float* estimacionFourier_ParteImag = estimacionDePlanoDeFourier(MV_AF, N, N, MC_imag, N, N, MU_AF, numGPU);
+  tiempoReconsFourierPartImag = clock() - tiempoReconsFourierPartImag;
+  float tiempoTotalReconsFourierPartImag = ((float)tiempoReconsFourierPartImag)/CLOCKS_PER_SEC;
+  clock_t tiempoReconsFourierPartReal;
+  tiempoReconsFourierPartReal = clock();
+  float* estimacionFourier_ParteReal = estimacionDePlanoDeFourier(MV_AF, N, N, MC_real, N, N, MU_AF, numGPU);
+  tiempoReconsFourierPartReal = clock() - tiempoReconsFourierPartReal;
+  float tiempoTotalReconsFourierPartReal = ((float)tiempoReconsFourierPartReal)/CLOCKS_PER_SEC;
+  clock_t tiempoReconsTransInver;
+  tiempoReconsTransInver = clock();
+  escribirTransformadaInversaFourier2D(estimacionFourier_ParteImag, estimacionFourier_ParteReal, N, nombreArchivoReconsImg);
+  tiempoReconsTransInver = clock() - tiempoReconsTransInver;
+  float tiempoTotalReconsTransInver = ((float)tiempoReconsTransInver)/CLOCKS_PER_SEC;
+  cudaFree(estimacionFourier_ParteImag);
+  cudaFree(estimacionFourier_ParteReal);
+  free(nombreArchivoReconsImg);
+
+
+  // ############### CALCULO DE GRADO DE COMPRESION ##############
+  char* rutaADirecTer = (char*) malloc(strlen(rutaADirecSec)*strlen(nombreDirTer)*sizeof(char)+sizeof(char)*3);
+  strcpy(rutaADirecTer, rutaADirecSec);
+  strcat(rutaADirecTer, "/");
+  strcat(rutaADirecTer, nombreDirTer);
+  if(mkdir(rutaADirecTer, 0777) == -1)
+  {
+    printf("ERROR: No se pudo crear subdirectorio.\n");
+    printf("PROGRAMA ABORTADO.\n");
+    exit(0);
+  }
+  strcat(rutaADirecTer, "/");
+  clock_t tiempoReconsFourierPartImagComp;
+  clock_t tiempoReconsFourierPartRealComp;
+  clock_t tiempoReconsTransInverComp;
+  printf("...Comenzando calculo de compresiones...\n");
+  clock_t tiempoCompresion;
+  tiempoCompresion = clock();
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  tiempoCompresion = clock() - tiempoCompresion;
+  float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
+  printf("Proceso de calculo de compresiones terminado.\n");
+  free(rutaADirecTer);
+  char* nombreArchivoInfoComp = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoCompresion)*sizeof(char)+sizeof(char)*2);
+  strcpy(nombreArchivoInfoComp, nombreDirPrin);
+  strcat(nombreArchivoInfoComp, "/");
+  strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
+  float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
+  #pragma omp critical
+  {
+    FILE* archivo = fopen(nombreArchivoInfoComp, "a");
+    fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho_enDeltaU, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
+    fclose(archivo);
+  }
+  free(nombreArchivoInfoComp);
+  free(medidasDeInfo);
+  free(datosDelMin);
+
+  cudaFree(MC_real);
+  cudaFree(MC_imag);
+  cudaFree(MU_AF);
+  cudaFree(MV_AF);
+  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
+  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
+  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
+
+  // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
+  char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
+  strcpy(nombreArchivoInfoTiemposEjecu, nombreDirPrin);
+  strcat(nombreArchivoInfoTiemposEjecu, "/");
+  strcat(nombreArchivoInfoTiemposEjecu, nombreArInfoTiemposEjecu);
+  #pragma omp critical
+  {
+    FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fclose(archivoInfoTiemposEjecu);
+  }
+
+  free(rutaADirecSec);
+}
+
+void reciclador_calculoDeInfoCompre_BaseRect(char nombreArchivoConNombres[], char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], char nombreArchivoCoefs_imag[], char nombreArchivoCoefs_real[], int cantArchivos, int flag_multiThread, char nombreArchivoInfoCompre[], int maxIter, float* u, float* v, float* w, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque, float* matrizDeUnosNxN, float estrechezDeBorde)
+{
+  if(mkdir(nombreDirPrin, 0777) == -1)
+  {
+      printf("ERROR: El directorio EXISTE, PELIGRO DE SOBREESCRITURA, por favor eliga otro nombre de directorio.\n");
+      printf("PROGRAMA ABORTADO.\n");
+      exit(0);
+  }
+  else
+      printf("Directorio creado.\n");
+
+      int* cantLineasPorArchivo;
+      cudaMallocManaged(&cantLineasPorArchivo, cantArchivos*sizeof(int));
+      int* largoDeNombres;
+      cudaMallocManaged(&largoDeNombres, cantArchivos*sizeof(int));
+      char** nombres = lecturaDeNombresDeArchivo(nombreArchivoConNombres, cantLineasPorArchivo, cantArchivos, largoDeNombres);
+      int contadorDeIteraciones = -1;
+      for(int numArchi=0; numArchi<cantArchivos; numArchi++)
+      {
+          int cantLineasActual = cantLineasPorArchivo[numArchi];
+          char* nombreActual = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoInfoCompre)+sizeof(char)*5);
+          strcpy(nombreActual, &(nombres[numArchi][0]));
+          strcat(nombreActual, "/");
+          strcat(nombreActual, nombreArchivoInfoCompre);
+
+          // printf("%s\n", nombreActual);
+          int* vectorDeNumItera;
+          cudaMallocManaged(&vectorDeNumItera, cantLineasActual*sizeof(int));
+          float* vectorDeAnchos_EnDeltaU;
+          cudaMallocManaged(&vectorDeAnchos_EnDeltaU, cantLineasActual*sizeof(float));
+          float* vectorDeAnchos_Real;
+          cudaMallocManaged(&vectorDeAnchos_Real, cantLineasActual*sizeof(float));
+          lecturaDeArchivo_infoCompre(nombreActual, vectorDeNumItera, vectorDeAnchos_EnDeltaU, vectorDeAnchos_Real, cantLineasActual);
+          free(nombreActual);
+          #pragma omp parallel num_threads(4)
+          {
+            #pragma omp for schedule(dynamic, 1)
+            for(int numLinea=0; numLinea<cantLineasActual; numLinea++)
+            {
+              int numIteracion;
+              if(flag_multiThread)
+              {
+                #pragma omp critical
+                {
+                  contadorDeIteraciones++;
+                  numIteracion = contadorDeIteraciones;
+                }
+              }
+              else
+              {
+                contadorDeIteraciones++;
+              }
+              int numIteAUsar = vectorDeNumItera[numLinea];
+              char* numComoString_iterALeer = numAString(&numIteAUsar);
+              sprintf(numComoString_iterALeer, "%d", numIteAUsar);
+              char* nombreDirSecLeerCoefs = (char*) malloc(sizeof(char)*strlen(nombreDirSec)+sizeof(char)*strlen(numComoString_iterALeer)+sizeof(char)*5);
+              strcpy(nombreDirSecLeerCoefs, nombreDirSec);
+              strcat(nombreDirSecLeerCoefs, numComoString_iterALeer);
+              free(numComoString_iterALeer);
+
+              char* nombreArchivoActualCoefs_imag = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoCoefs_imag)+sizeof(char)*10);
+              strcpy(nombreArchivoActualCoefs_imag, &(nombres[numArchi][0]));
+              strcat(nombreArchivoActualCoefs_imag, "/");
+              strcat(nombreArchivoActualCoefs_imag, nombreDirSecLeerCoefs);
+              strcat(nombreArchivoActualCoefs_imag, "/");
+              strcat(nombreArchivoActualCoefs_imag, nombreArchivoCoefs_imag);
+              char* nombreArchivoActualCoefs_real = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoCoefs_real)+sizeof(char)*10);
+              strcpy(nombreArchivoActualCoefs_real, &(nombres[numArchi][0]));
+              strcat(nombreArchivoActualCoefs_real, "/");
+              strcat(nombreArchivoActualCoefs_real, nombreDirSecLeerCoefs);
+              strcat(nombreArchivoActualCoefs_real, "/");
+              strcat(nombreArchivoActualCoefs_real, nombreArchivoCoefs_real);
+              free(nombreDirSecLeerCoefs);
+              float* MC_imag_actual, *MC_real_actual ;
+              cudaMallocManaged(&MC_imag_actual, N*N*sizeof(float));
+              cudaMallocManaged(&MC_real_actual, N*N*sizeof(float));
+              #pragma omp critical
+              {
+                lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_imag, MC_imag_actual, N, N);
+                lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_real, MC_real_actual, N, N);
+              }
+              free(nombreArchivoActualCoefs_imag);
+              free(nombreArchivoActualCoefs_real);
+              char* numComoString_iterAEscribir = numAString(&numIteracion);
+              sprintf(numComoString_iterAEscribir, "%d", numIteracion);
+              char* nombreNuevoDirSec = (char*) malloc(sizeof(char)*strlen(nombreDirSec)+sizeof(char)*strlen(numComoString_iterAEscribir)+sizeof(char)*5);
+              strcpy(nombreNuevoDirSec, nombreDirSec);
+              strcat(nombreNuevoDirSec, numComoString_iterAEscribir);
+              free(numComoString_iterAEscribir);
+              int thread_id = omp_get_thread_num();
+              int deviceId = thread_id%4;
+              cudaSetDevice(deviceId);
+              af::setDevice(deviceId);
+              // reciclador_calCompSegunAncho_Normal_escritura(MC_imag_actual, MC_real_actual, nombreDirPrin, nombreNuevoDirSec, nombreDirTer, vectorDeAnchos_Real[numLinea], vectorDeAnchos_EnDeltaU[numLinea], numIteracion, u, v, w, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId);
+              reciclador_calCompSegunAncho_Rect_escritura(MC_imag_actual, MC_real_actual, nombreDirPrin, nombreNuevoDirSec, nombreDirTer, vectorDeAnchos_Real[numLinea], vectorDeAnchos_EnDeltaU[numLinea], numIteracion, u, v, w, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId, matrizDeUnosNxN, estrechezDeBorde);
+              free(nombreNuevoDirSec);
+              cudaFree(MC_imag_actual);
+              cudaFree(MC_real_actual);
+            }
+          }
+          cudaFree(vectorDeNumItera);
+          cudaFree(vectorDeAnchos_EnDeltaU);
+          cudaFree(vectorDeAnchos_Real);
+      }
+      cudaFree(cantLineasPorArchivo);
+      cudaFree(largoDeNombres);
+      for(int i=0; i<cantArchivos; i++)
+        free(&(nombres[i][0]));
+      free(nombres);
+      exit(-1);
 }
 
 void calImagenesADistintasCompresiones_Rect(float inicioIntervalo, float finIntervalo, int cantParamEvaInfo, char nombreDirPrin[], float ancho, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPU)
@@ -4029,9 +4331,306 @@ void filtroGaussiano()
 //   cusparseDestroyCsrgemm2Info(info);
 // }
 
+void reciclador_calCompSegunAncho_Normal_escritura(float* MC_imag, float* MC_real, char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float ancho_enDeltaU, int iterActual, float* u, float* v, float* w, float delta_u, float delta_v, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque, int numGPU)
+{
+  float inicioPorcenCompre = 0.0;
+  float terminoPorcenCompre = 0.2;
+  int cantPorcen = 101;
+  // int cantPorcen = 2;
+
+
+   // ############### CONFIG. DE NOMBRES DE ARCHIVOS  ##############
+  char nombreArReconsImg[] = "reconsImg.fit";
+  char nombreArReconsCompreImg[] = "reconsCompreImg.fit";
+  char nombreArMin_imag[] = "minCoefs_imag.txt";
+  char nombreArCoef_imag[] = "coefs_imag.txt";
+  char nombreArCoef_comp_imag[] = "coefs_comp_imag.txt";
+  char nombreArMin_real[] = "minCoefs_real.txt";
+  char nombreArCoef_real[] = "coefs_real.txt";
+  char nombreArCoef_comp_real[] = "coefs_comp_real.txt";
+  char nombreArInfoCompresion[] = "infoCompre.txt";
+  char nombreArInfoTiemposEjecu[] = "infoTiemposEjecu.txt";
+
+
+   // ############### CALCULO DE MU Y MV - CREACION DE DIRECTORIO SEGUNDARIO  ##############
+  printf("...Comenzando calculo de MV...\n");
+  clock_t tiempoCalculoMV;
+  tiempoCalculoMV = clock();
+  float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, ancho, tamBloque, numGPU);
+  tiempoCalculoMV = clock() - tiempoCalculoMV;
+  float tiempoTotalCalculoMV = ((float)tiempoCalculoMV)/CLOCKS_PER_SEC;
+  printf("Calculo de MV completado.\n");
+
+   printf("...Comenzando calculo de MU...\n");
+  clock_t tiempoCalculoMU;
+  tiempoCalculoMU = clock();
+  float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, ancho, tamBloque, numGPU);
+  tiempoCalculoMU = clock() - tiempoCalculoMU;
+  float tiempoTotalCalculoMU = ((float)tiempoCalculoMU)/CLOCKS_PER_SEC;
+  printf("Calculo de MU completado.\n");
+
+  char* rutaADirecSec = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreDirSec)*sizeof(char)+sizeof(char)*3);
+  strcpy(rutaADirecSec, nombreDirPrin);
+  strcat(rutaADirecSec, "/");
+  strcat(rutaADirecSec, nombreDirSec);
+  // printf("Llegue: %s\n", rutaADirecSec);
+  if(mkdir(rutaADirecSec, 0777) == -1)
+  {
+      printf("ERROR: No se pudo crear subdirectorio.\n");
+      printf("%s\n", rutaADirecSec);
+      printf("PROGRAMA ABORTADO.\n");
+      exit(0);
+  }
+  strcat(rutaADirecSec, "/");
+
+
+   // ############### CALCULO NIVEL DE INFORMACION ##############
+  clock_t tiempoInfo;
+  tiempoInfo = clock();
+  float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, numGPU);
+  tiempoInfo = clock() - tiempoInfo;
+  float tiempoTotalInfo = ((float)tiempoInfo)/CLOCKS_PER_SEC;
+  cudaFree(MU);
+  cudaFree(MV);
+
+  clock_t tiempoMinPartImag;
+  tiempoMinPartImag = clock();
+  tiempoMinPartImag = clock() - tiempoMinPartImag;
+  float tiempoTotalMinPartImag = ((float)tiempoMinPartImag)/CLOCKS_PER_SEC;
+  clock_t tiempoMinPartReal;
+  tiempoMinPartReal = clock();
+  tiempoMinPartReal = clock() - tiempoMinPartReal;
+  float tiempoTotalMinPartReal = ((float)tiempoMinPartReal)/CLOCKS_PER_SEC;
+
+
+   // ############### RECONSTRUCCION DEL PLANO GRILLEADO Y ALMACENAMIENTO DE LA RECONSTRUCCION DE LA IMAGEN ##############
+  char* nombreArchivoReconsImg = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreDirSec)*strlen(nombreArReconsImg)*sizeof(char)+sizeof(char)*3);
+  strcpy(nombreArchivoReconsImg, rutaADirecSec);
+  strcat(nombreArchivoReconsImg, nombreArReconsImg);
+  clock_t tiempoCalculoMV_AF;
+  tiempoCalculoMV_AF = clock();
+  float* MV_AF = calcularMV_Normal_estFourier(ancho, N, delta_v, matrizDeUnosTamN, tamBloque, numGPU);
+  tiempoCalculoMV_AF = clock() - tiempoCalculoMV_AF;
+  float tiempoTotalCalculoMV_AF = ((float)tiempoCalculoMV_AF)/CLOCKS_PER_SEC;
+  clock_t tiempoCalculoMU_AF;
+  tiempoCalculoMU_AF = clock();
+  float* MU_AF = calcularMV_Normal_estFourier(ancho, N, delta_u, matrizDeUnosTamN, tamBloque, numGPU);
+  tiempoCalculoMU_AF = clock() - tiempoCalculoMU_AF;
+  float tiempoTotalCalculoMU_AF = ((float)tiempoCalculoMU_AF)/CLOCKS_PER_SEC;
+  clock_t tiempoReconsFourierPartImag;
+  tiempoReconsFourierPartImag = clock();
+  float* estimacionFourier_ParteImag = estimacionDePlanoDeFourier(MV_AF, N, N, MC_imag, N, N, MU_AF, numGPU);
+  tiempoReconsFourierPartImag = clock() - tiempoReconsFourierPartImag;
+  float tiempoTotalReconsFourierPartImag = ((float)tiempoReconsFourierPartImag)/CLOCKS_PER_SEC;
+  clock_t tiempoReconsFourierPartReal;
+  tiempoReconsFourierPartReal = clock();
+  float* estimacionFourier_ParteReal = estimacionDePlanoDeFourier(MV_AF, N, N, MC_real, N, N, MU_AF, numGPU);
+  tiempoReconsFourierPartReal = clock() - tiempoReconsFourierPartReal;
+  float tiempoTotalReconsFourierPartReal = ((float)tiempoReconsFourierPartReal)/CLOCKS_PER_SEC;
+  clock_t tiempoReconsTransInver;
+  tiempoReconsTransInver = clock();
+  escribirTransformadaInversaFourier2D(estimacionFourier_ParteImag, estimacionFourier_ParteReal, N, nombreArchivoReconsImg);
+  tiempoReconsTransInver = clock() - tiempoReconsTransInver;
+  float tiempoTotalReconsTransInver = ((float)tiempoReconsTransInver)/CLOCKS_PER_SEC;
+  cudaFree(estimacionFourier_ParteImag);
+  cudaFree(estimacionFourier_ParteReal);
+  free(nombreArchivoReconsImg);
+
+
+   // ############### CALCULO DE GRADO DE COMPRESION ##############
+  char* rutaADirecTer = (char*) malloc(strlen(rutaADirecSec)*strlen(nombreDirTer)*sizeof(char)+sizeof(char)*3);
+  strcpy(rutaADirecTer, rutaADirecSec);
+  strcat(rutaADirecTer, "/");
+  strcat(rutaADirecTer, nombreDirTer);
+  if(mkdir(rutaADirecTer, 0777) == -1)
+  {
+    printf("ERROR: No se pudo crear subdirectorio.\n");
+    printf("PROGRAMA ABORTADO.\n");
+    exit(0);
+  }
+  strcat(rutaADirecTer, "/");
+  clock_t tiempoReconsFourierPartImagComp;
+  clock_t tiempoReconsFourierPartRealComp;
+  clock_t tiempoReconsTransInverComp;
+  printf("...Comenzando calculo de compresiones...\n");
+  clock_t tiempoCompresion;
+  tiempoCompresion = clock();
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  tiempoCompresion = clock() - tiempoCompresion;
+  float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
+  printf("Proceso de calculo de compresiones terminado.\n");
+  free(rutaADirecTer);
+  char* nombreArchivoInfoComp = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoCompresion)*sizeof(char)+sizeof(char)*2);
+  strcpy(nombreArchivoInfoComp, nombreDirPrin);
+  strcat(nombreArchivoInfoComp, "/");
+  strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
+  float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
+  #pragma omp critical
+  {
+    FILE* archivo = fopen(nombreArchivoInfoComp, "a");
+    fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho_enDeltaU, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
+    fclose(archivo);
+  }
+  free(nombreArchivoInfoComp);
+  free(medidasDeInfo);
+  free(datosDelMin);
+
+  cudaFree(MC_real);
+  cudaFree(MC_imag);
+  cudaFree(MU_AF);
+  cudaFree(MV_AF);
+  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
+  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
+  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
+
+   // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
+  char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
+  strcpy(nombreArchivoInfoTiemposEjecu, nombreDirPrin);
+  strcat(nombreArchivoInfoTiemposEjecu, "/");
+  strcat(nombreArchivoInfoTiemposEjecu, nombreArInfoTiemposEjecu);
+  #pragma omp critical
+  {
+    FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fclose(archivoInfoTiemposEjecu);
+  }
+  free(rutaADirecSec);
+}
+
+void reciclador_calculoDeInfoCompre_BaseNormal(char nombreArchivoConNombres[], char nombreDirPrin[], char nombreDirSec[], char nombreDirTer[], char nombreArchivoCoefs_imag[], char nombreArchivoCoefs_real[], int cantArchivos, int flag_multiThread, char nombreArchivoInfoCompre[], int maxIter, float* u, float* v, float* w, float delta_u, float delta_v, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque)
+{
+  if(mkdir(nombreDirPrin, 0777) == -1)
+  {
+      printf("ERROR: El directorio EXISTE, PELIGRO DE SOBREESCRITURA, por favor eliga otro nombre de directorio.\n");
+      printf("PROGRAMA ABORTADO.\n");
+      exit(0);
+  }
+  else
+      printf("Directorio creado.\n");
+  int* cantLineasPorArchivo;
+  cudaMallocManaged(&cantLineasPorArchivo, cantArchivos*sizeof(int));
+  int* largoDeNombres;
+  cudaMallocManaged(&largoDeNombres, cantArchivos*sizeof(int));
+  char** nombres = lecturaDeNombresDeArchivo(nombreArchivoConNombres, cantLineasPorArchivo, cantArchivos, largoDeNombres);
+  int contadorDeIteraciones = -1;
+  for(int numArchi=0; numArchi<cantArchivos; numArchi++)
+  {
+      int cantLineasActual = cantLineasPorArchivo[numArchi];
+      char* nombreActual = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoInfoCompre)+sizeof(char)*5);
+      strcpy(nombreActual, &(nombres[numArchi][0]));
+      strcat(nombreActual, "/");
+      strcat(nombreActual, nombreArchivoInfoCompre);
+
+      // printf("%s\n", nombreActual);
+      int* vectorDeNumItera;
+      cudaMallocManaged(&vectorDeNumItera, cantLineasActual*sizeof(int));
+      float* vectorDeAnchos_EnDeltaU;
+      cudaMallocManaged(&vectorDeAnchos_EnDeltaU, cantLineasActual*sizeof(float));
+      float* vectorDeAnchos_Real;
+      cudaMallocManaged(&vectorDeAnchos_Real, cantLineasActual*sizeof(float));
+      lecturaDeArchivo_infoCompre(nombreActual, vectorDeNumItera, vectorDeAnchos_EnDeltaU, vectorDeAnchos_Real, cantLineasActual);
+      free(nombreActual);
+      #pragma omp parallel num_threads(1)
+      {
+        #pragma omp for schedule(dynamic, 1)
+        for(int numLinea=0; numLinea<cantLineasActual; numLinea++)
+        {
+          int numIteracion;
+          if(flag_multiThread)
+          {
+            #pragma omp critical
+            {
+              contadorDeIteraciones++;
+              numIteracion = contadorDeIteraciones;
+            }
+          }
+          else
+          {
+            contadorDeIteraciones++;
+          }
+          int numIteAUsar = vectorDeNumItera[numLinea];
+          char* numComoString_iterALeer = numAString(&numIteAUsar);
+          sprintf(numComoString_iterALeer, "%d", numIteAUsar);
+          char* nombreDirSecLeerCoefs = (char*) malloc(sizeof(char)*strlen(nombreDirSec)+sizeof(char)*strlen(numComoString_iterALeer)+sizeof(char)*5);
+          strcpy(nombreDirSecLeerCoefs, nombreDirSec);
+          strcat(nombreDirSecLeerCoefs, numComoString_iterALeer);
+          free(numComoString_iterALeer);
+
+          char* nombreArchivoActualCoefs_imag = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoCoefs_imag)+sizeof(char)*10);
+          strcpy(nombreArchivoActualCoefs_imag, &(nombres[numArchi][0]));
+          strcat(nombreArchivoActualCoefs_imag, "/");
+          strcat(nombreArchivoActualCoefs_imag, nombreDirSecLeerCoefs);
+          strcat(nombreArchivoActualCoefs_imag, "/");
+          strcat(nombreArchivoActualCoefs_imag, nombreArchivoCoefs_imag);
+          char* nombreArchivoActualCoefs_real = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoCoefs_real)+sizeof(char)*10);
+          strcpy(nombreArchivoActualCoefs_real, &(nombres[numArchi][0]));
+          strcat(nombreArchivoActualCoefs_real, "/");
+          strcat(nombreArchivoActualCoefs_real, nombreDirSecLeerCoefs);
+          strcat(nombreArchivoActualCoefs_real, "/");
+          strcat(nombreArchivoActualCoefs_real, nombreArchivoCoefs_real);
+          free(nombreDirSecLeerCoefs);
+          float* MC_imag_actual, *MC_real_actual ;
+          cudaMallocManaged(&MC_imag_actual, N*N*sizeof(float));
+          cudaMallocManaged(&MC_real_actual, N*N*sizeof(float));
+          #pragma omp critical
+          {
+            lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_imag, MC_imag_actual, N, N);
+            lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_real, MC_real_actual, N, N);
+          }
+          free(nombreArchivoActualCoefs_imag);
+          free(nombreArchivoActualCoefs_real);
+          char* numComoString_iterAEscribir = numAString(&numIteracion);
+          sprintf(numComoString_iterAEscribir, "%d", numIteracion);
+          char* nombreNuevoDirSec = (char*) malloc(sizeof(char)*strlen(nombreDirSec)+sizeof(char)*strlen(numComoString_iterAEscribir)+sizeof(char)*5);
+          strcpy(nombreNuevoDirSec, nombreDirSec);
+          strcat(nombreNuevoDirSec, numComoString_iterAEscribir);
+          free(numComoString_iterAEscribir);
+          int thread_id = omp_get_thread_num();
+          int deviceId = thread_id%4;
+          cudaSetDevice(deviceId);
+          af::setDevice(deviceId);
+          reciclador_calCompSegunAncho_Normal_escritura(MC_imag_actual, MC_real_actual, nombreDirPrin, nombreNuevoDirSec, nombreDirTer, vectorDeAnchos_Real[numLinea], vectorDeAnchos_EnDeltaU[numLinea], numIteracion, u, v, w, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId);
+          free(nombreNuevoDirSec);
+          cudaFree(MC_imag_actual);
+          cudaFree(MC_real_actual);
+        }
+      }
+      cudaFree(vectorDeNumItera);
+      cudaFree(vectorDeAnchos_EnDeltaU);
+      cudaFree(vectorDeAnchos_Real);
+  }
+  cudaFree(cantLineasPorArchivo);
+  cudaFree(largoDeNombres);
+  for(int i=0; i<cantArchivos; i++)
+    free(&(nombres[i][0]));
+  free(nombres);
+  exit(-1);
+}
+
 
 int main()
 {
+
+  // char** nombresDeArchivos = (char**) malloc(sizeof(char*)*cantArchivos);
+  // for(int i=0; i<cantArchivos; i++)
+  // {
+  //   nombreArchivos[i] = (char*) malloc(sizeof(char)*100);
+  // }
+  //
+  // int largo = 150;
+  // int* vectorDeNumItera;
+  // cudaMallocManaged(&vectorDeNumItera, largo*sizeof(int));
+  // float* vectorDeAnchos;
+  // cudaMallocManaged(&vectorDeAnchos, largo*sizeof(float));
+  // lecturaDeArchivo_infoCompre(nombreArchivito, vectorDeNumItera, vectorDeAnchos, largo);
+  // float* MC_imag;
+  // cudaMallocManaged(&MC_imag, N*N*sizeof(float));
+  // float* MC_real;
+  // cudaMallocManaged(&MC_real, N*N*sizeof(float));
+  // char nombreUbiCoefsImag = "/home/rarmijo/experi_hd142_linspacevariable_Rect_visi153/ite34/coefs_imag.txt";
+  // lecturaDeTXTDeCoefs(nombreUbiCoefsImag, MC_imag, N, N);
+  // char nombreUbiCoefsReal = "/home/rarmijo/experi_hd142_linspacevariable_Rect_visi153/ite34/coefs_real.txt";
+  // lecturaDeTXTDeCoefs(nombreUbiCoefsReal, MC_real, N, N);
 
   // 1/(1+(x/a)^2)
   // int largo = 5;
@@ -4149,22 +4748,119 @@ int main()
   lectDeTXTcreadoDesdeMS(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal);
   // lectDeTXTcreadoDesdeMSConLimite(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal, inicio, fin, cantVisi);
 
-  float* matrizDeUnos, *matrizDeUnosEstFourier, *matrizDeUnosNxN;
+  float* matrizDeUnos, *matrizDeUnosTamN, *matrizDeUnosNxN;
   cudaMallocManaged(&matrizDeUnos, cantVisi*N*sizeof(float));
   for(long i=0; i<(cantVisi*N); i++)
   {
     matrizDeUnos[i] = 1.0;
   }
-  cudaMallocManaged(&matrizDeUnosEstFourier, N*sizeof(float));
+  cudaMallocManaged(&matrizDeUnosTamN, N*sizeof(float));
   for(long i=0; i<N; i++)
   {
-    matrizDeUnosEstFourier[i] = 1.0;
+    matrizDeUnosTamN[i] = 1.0;
   }
   cudaMallocManaged(&matrizDeUnosNxN, N*N*sizeof(float));
   for(long i=0; i<N*N; i++)
   {
     matrizDeUnosNxN[i] = 1.0;
   }
+
+
+  // char nombreNuevoDirPrin = "experimento_de_prueba";
+  // char nombreDirSecSinRaiz = "ite";
+  // char nombreArchivoConNombres[] = "nombredeprueba.txt";
+  // char nombreArchivoCoefs_imag[] = "coefs_imag.txt";
+  // char nombreArchivoCoefs_real[] = "coefs_real.txt";
+  // int cantArchivos = 2;
+  // int flag_multiThread = 1;
+  // char nombreArchivoInfoCompre[] = "infoCompre.txt";
+
+
+  // int* cantLineasPorArchivo;
+  // cudaMallocManaged(&cantLineasPorArchivo, cantArchivos*sizeof(int));
+  // int* largoDeNombres;
+  // cudaMallocManaged(&largoDeNombres, cantArchivos*sizeof(int));
+  // char** nombres = lecturaDeNombresDeArchivo(nombreArchivoConNombres, cantLineasPorArchivo, cantArchivos, largoDeNombres);
+  // int contadorDeIteraciones = -1;
+  // for(int numArchi=0; numArchi<cantArchivos; numArchi++)
+  // {
+  //     int cantLineasActual = cantLineasPorArchivo[numArchi];
+  //     char* nombreActual = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoInfoCompre)+sizeof(char)*5);
+  //     strcpy(nombreActual, &(nombres[numArchi][0]));
+  //     strcat(nombreActual, "/");
+  //     strcat(nombreActual, nombreArchivoInfoCompre);
+  //
+  //     // printf("%s\n", nombreActual);
+  //     int* vectorDeNumItera;
+  //     cudaMallocManaged(&vectorDeNumItera, cantLineasActual*sizeof(int));
+  //     float* vectorDeAnchos;
+  //     cudaMallocManaged(&vectorDeAnchos, cantLineasActual*sizeof(float));
+  //     lecturaDeArchivo_infoCompre(nombreActual, vectorDeNumItera, vectorDeAnchos, cantLineasActual);
+  //     free(nombreActual);
+  //     for(int numLinea=0; numLinea<cantLineasActual; numLinea++)
+  //     {
+  //       int numIteracion;
+  //       if(flag_multiThread)
+  //       {
+  //         #pragma omp critical
+  //         {
+  //           contadorDeIteraciones++;
+  //           numIteracion = contadorDeIteraciones;
+  //         }
+  //       }
+  //       else
+  //       {
+  //         contadorDeIteraciones++;
+  //       }
+  //       int numIteAUsar = vectorDeNumItera[numLinea];
+  //       char* numComoString_iterALeer = numAString(&numIteAUsar);
+  //       sprintf(numComoString_iterALeer, "%d", numIteAUsar);
+  //       char* nombreDirSecLeerCoefs = (char*) malloc(sizeof(char)*strlen(nombreDirSecSinRaiz)+sizeof(char)*strlen(numComoString_iterALeer)+sizeof(char)*5);
+  //       strcpy(nombreDirSecLeerCoefs, nombreDirSecSinRaiz);
+  //       strcat(nombreDirSecLeerCoefs, numComoString_iterALeer);
+  //       free(numComoString_iterALeer);
+  //
+  //       char* nombreArchivoActualCoefs_imag = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)strlen(nombreArchivoCoefs_imag)+sizeof(char)*10);
+  //       strcpy(nombreArchivoActualCoefs_imag, &(nombres[numArchi][0]));
+  //       strcat(nombreArchivoActualCoefs_real, "/");
+  //       strcat(nombreArchivoActualCoefs_real, nombreDirSecLeerCoefs);
+  //       strcat(nombreArchivoActualCoefs_imag, "/");
+  //       strcat(nombreArchivoActualCoefs_imag, nombreArchivoCoefs_imag);
+  //       char* nombreArchivoActualCoefs_real = (char*) malloc(sizeof(char)*(largoDeNombres[numArchi])+sizeof(char)*strlen(nombreArchivoCoefs_real)+sizeof(char)*10);
+  //       strcpy(nombreArchivoActualCoefs_real, &(nombres[numArchi][0]));
+  //       strcat(nombreArchivoActualCoefs_real, "/");
+  //       strcat(nombreArchivoActualCoefs_real, nombreDirSecLeerCoefs);
+  //       strcat(nombreArchivoActualCoefs_real, "/");
+  //       strcat(nombreArchivoActualCoefs_real, nombreArchivoCoefs_real);
+  //       free(nombreDirSecLeerCoefs);
+  //       float* MC_imag_actual, *MC_real_actual ;
+  //       cudaMallocManaged(&MC_imag_actual, N*N*sizeof(float));
+  //       cudaMallocManaged(&MC_real_actual, N*N*sizeof(float));
+  //       lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_imag, MC_imag_actual, N, N);
+  //       lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_real, MC_real_actual, N, N);
+  //       free(nombreArchivoActualCoefs_imag);
+  //       free(nombreArchivoActualCoefs_real);
+  //
+  //       char* numComoString_iterAEscribir = numAString(&contadorDeIteraciones);
+  //       sprintf(numComoString_iterAEscribir, "%d", contadorDeIteraciones);
+  //       char* nombreNuevoDirSec = (char*) malloc(sizeof(char)*strlen(nombreDirSecSinRaiz)+sizeof(char)*strlen(numComoString_iterAEscribir)+sizeof(char)*5);
+  //       strcpy(nombreNuevoDirSec, nombreDirSecSinRaiz);
+  //       strcat(nombreNuevoDirSec, numComoString_iterAEscribir);
+  //       free(numComoString_iterAEscribir);
+  //       reciclador_calCompSegunAncho_Rect_escritura(MC_imag, MC_real, nombreDirPrin, nombreNuevoDirSec, nombreDirTer, vectorDeAnchos[numLinea], cotaEnergia, contadorDeIteraciones, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, estrechezDeBorde, tamBloque, thread_id, matrizDeUnosNxN);
+  //       free(nombreNuevoDirSec);
+  //       cudaFree(MC_imag_actual);
+  //       cudaFree(MC_real_actual);
+  //     }
+  //     cudaFree(vectorDeNumItera);
+  //     cudaFree(vectorDeAnchos);
+  // }
+  // cudaFree(cantLineasPorArchivo);
+  // cudaFree(largoDeNombres);
+  // for(int i=0; i<cantArchivos; i++)
+  //   free(nombres[i][0]);
+  // free(nombres);
+  // exit(-1);
 
   // int cantParamEvaInfo = 153;
   // float limitesDeZonas[] = {0.001, 2.0, 3.0};
@@ -4286,26 +4982,38 @@ int main()
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Hermite_linspacevariable_visi153";
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi400";
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Rect_linspacevariable_visi500";
-  char nombreDirPrin[] = "/disk2/tmp/experi_hd142_InvCuadra_linspacevariable_visi400y800";
+  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_InvCuadra_linspacevariable_visi400y800";
+  // char nombreDirSec[] = "ite";
+  // char nombreDirTer[] = "compresiones";
+  // char nombreArchivoTiempo[] = "tiempo.txt";
+  // // int cantParamEvaInfo = 153;
+  // int cantParamEvaInfo = 1203;
+  // float inicioIntervalo = 0.001;
+  // float finIntervalo = 3.0;
+  // float tolGolden = 1E-12;
+  // int iterActual = 0;
+
+  char nombreDirPrin[] = "/disk2/tmp/experimento_de_prueba";
   char nombreDirSec[] = "ite";
   char nombreDirTer[] = "compresiones";
   char nombreArchivoTiempo[] = "tiempo.txt";
-  // int cantParamEvaInfo = 153;
-  int cantParamEvaInfo = 1203;
+  char nombreArchivoConNombres[] = "nombredeprueba.txt";
+  char nombreArchivoCoefs_imag[] = "coefs_imag.txt";
+  char nombreArchivoCoefs_real[] = "coefs_real.txt";
+  int cantArchivos = 2;
+  int flag_multiThread = 1;
+  char nombreArchivoInfoCompre[] = "infoCompre.txt";
 
-  // float inicioIntervalo = 0.205;
-  // float finIntervalo = 1.0;
-
-  float inicioIntervalo = 0.001;
-  float finIntervalo = 3.0;
-  float tolGolden = 1E-12;
-  int iterActual = 0;
   clock_t t;
   t = clock();
-  // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-  // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-  calculoDeInfoCompre_BaseInvCuadra(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-  // calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+
+  // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+  // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+  // calculoDeInfoCompre_BaseInvCuadra(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+  // calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+  // reciclador_calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+  // reciclador_calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+  reciclador_calculoDeInfoCompre_BaseNormal(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque);
   t = clock() - t;
   float time_taken = ((float)t)/CLOCKS_PER_SEC;
   char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*strlen(nombreArchivoTiempo)*strlen(nombreDirPrin)+sizeof(char)*3);
@@ -4325,7 +5033,7 @@ int main()
   cudaFree(visi_parteImaginaria);
   cudaFree(visi_parteReal);
   cudaFree(matrizDeUnos);
-  cudaFree(matrizDeUnosEstFourier);
+  cudaFree(matrizDeUnosTamN);
 }
 
 //
@@ -4444,16 +5152,16 @@ int main()
 //   lectDeTXTcreadoDesdeMS(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal);
 //   // lectDeTXTcreadoDesdeMSConLimite(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal, inicio, fin, cantVisi);
 //
-//   float* matrizDeUnos, *matrizDeUnosEstFourier, *matrizDeUnosNxN;
+//   float* matrizDeUnos, *matrizDeUnosTamN, *matrizDeUnosNxN;
 //   cudaMallocManaged(&matrizDeUnos, cantVisi*N*sizeof(float));
 //   for(long i=0; i<(cantVisi*N); i++)
 //   {
 //     matrizDeUnos[i] = 1.0;
 //   }
-//   cudaMallocManaged(&matrizDeUnosEstFourier, N*sizeof(float));
+//   cudaMallocManaged(&matrizDeUnosTamN, N*sizeof(float));
 //   for(long i=0; i<N; i++)
 //   {
-//     matrizDeUnosEstFourier[i] = 1.0;
+//     matrizDeUnosTamN[i] = 1.0;
 //   }
 //   cudaMallocManaged(&matrizDeUnosNxN, N*N*sizeof(float));
 //   for(long i=0; i<N*N; i++)
@@ -4515,9 +5223,9 @@ int main()
 //   int iterActual = 0;
 //   clock_t t;
 //   t = clock();
-//   // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-//   // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque);
-//   calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosEstFourier, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+//   // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+//   // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+//   calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
 //   t = clock() - t;
 //   float time_taken = ((float)t)/CLOCKS_PER_SEC;
 //   char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*strlen(nombreArchivoTiempo)*strlen(nombreDirPrin)+sizeof(char)*3);
@@ -4537,5 +5245,5 @@ int main()
 //   cudaFree(visi_parteImaginaria);
 //   cudaFree(visi_parteReal);
 //   cudaFree(matrizDeUnos);
-//   cudaFree(matrizDeUnosEstFourier);
+//   cudaFree(matrizDeUnosTamN);
 // }
