@@ -1812,7 +1812,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   char nombreDatosDeIteLegible[] = "datosDeIteLegible.txt";
   char nombreCurvaPSNRSuavizada[] = "curvaPSNRSuavizada.txt";
   char nombreRelativoCoefsCeroAporte[] = "idsCoefsCeroAporte.txt";
-
+  printf("calPSNR 1\n");
   float* MC_comp_imag;
   cudaMallocManaged(&MC_comp_imag,N*N*sizeof(float));
   cudaMemset(MC_comp_imag, 0, N*N*sizeof(float));
@@ -1848,7 +1848,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   MC_modulo_Orde_GPU.unlock();
   MC_modulo_GPU.unlock();
   MC_modulo_indicesOrde_GPU.unlock();
-
+  printf("calPSNR 2\n");
   char* nombreAbsolutoCoefsCeroAporte = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreRelativoCoefsCeroAporte)+sizeof(char)*4);
   strcpy(nombreAbsolutoCoefsCeroAporte, rutaADirecSec);
   strcat(nombreAbsolutoCoefsCeroAporte, "/");
@@ -1876,7 +1876,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   // printf("La porcentaje de coefs utiles es %f\n", finIntervalo);
   float* paramEvaInfo = linspace(inicioIntervalo/100.0, finIntervalo, cantParamEvaInfo);
   free(nombreAbsolutoCoefsCeroAporte);
-
+  printf("calPSNR 3\n");
   long cantCoefsParaCota = 0;
   float sumador = 0.0;
   long iExterno = 0;
@@ -1969,6 +1969,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
       free(nombreArchivoReconsImgComp);
     }
   }
+  printf("calPSNR 4\n");
   float maximoPSNR = 0;
   for(long j=0; j<cantParamEvaInfo; j++)
   {
@@ -1985,6 +1986,9 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
     fprintf(archivoDatosDeIteLegible, "Porcen ideal de coefs: %f, Porcen ideal de compresion: %f, Porcen real de coefs: %f, Porcen real de compresion: %f, Cant de coefs: %ld, Porcen de energia: %f, PSNR: %f, Porcen de PSNR con respecto al total: %f\n", abs(porcenIdeal[j]-1) * 100, porcenIdeal[j] * 100, abs(porcenReal[j]-1) * 100, porcenReal[j] * 100, cantCoefsUsadas[j], vectorDePorcenEnergia[j], vectorDePSNR[j], porcenPSNRConRespectoTotal[j] * 100);
     fclose(archivoDatosDeIteLegible);
   }
+  free(nombreArchivoDatosDeIte);
+  free(nombreArchivoDatosDeIteLegible);
+  printf("calPSNR 5\n");
   float* vectorDePSNRFiltrado = (float*) calloc(cantParamEvaInfo, sizeof(float));
   gsl_vector* vectorDePSNREnGSL = gsl_vector_alloc(cantParamEvaInfo);
   gsl_vector* vectorDePSNREnGSLFiltrado = gsl_vector_alloc(cantParamEvaInfo);
@@ -2001,7 +2005,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   gsl_vector_free(vectorDePSNREnGSL);
   gsl_vector_free(vectorDePSNREnGSLFiltrado);
   gsl_filter_gaussian_free(gauss_p);
-
+  printf("calPSNR 6\n");
   char* nombreArchivoCurvaPSNRSuavizada = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreCurvaPSNRSuavizada)+sizeof(char)*4);
   strcpy(nombreArchivoCurvaPSNRSuavizada, rutaADirecSec);
   strcat(nombreArchivoCurvaPSNRSuavizada, "/");
@@ -2033,10 +2037,10 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
       }
     }
   }
+  printf("calPSNR 7\n");
   if(cantPtsVentana > 0)
   {
     af::array vectorDeDifePSNREntrePtosAdya_GPU(cantPtsVentana, vectorDeDifePSNREntrePtosAdya);
-    free(vectorDeDifePSNREntrePtosAdya);
     af::array vectorDeDifePSNREntrePtosAdya_indicesOrde_GPU(cantPtsVentana);
     af::array vectorDeDifePSNREntrePtosAdya_Orde_GPU(cantPtsVentana);
     af::sort(vectorDeDifePSNREntrePtosAdya_Orde_GPU, vectorDeDifePSNREntrePtosAdya_indicesOrde_GPU, vectorDeDifePSNREntrePtosAdya_GPU, 0, true);
@@ -2071,7 +2075,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
     datosDelMin[6] = 0;
     datosDelMin[7] = 0;
   }
-
+  printf("calPSNR 8\n");
   free(vectorDeDifePSNREntrePtosAdya);
   free(vectorDePSNRFiltrado);
   free(porcenIdeal);
@@ -2080,62 +2084,20 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   free(vectorDePorcenEnergia);
   free(vectorDePSNR);
   free(porcenPSNRConRespectoTotal);
-
+  printf("calPSNR 9\n");
   char* nombreArchivoMejorCompre = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreArchivoDatosMinPSNR)+sizeof(char)*4);
   strcpy(nombreArchivoMejorCompre, rutaADirecSec);
   strcat(nombreArchivoMejorCompre, "/");
   strcat(nombreArchivoMejorCompre, nombreArchivoDatosMinPSNR);
   FILE* archivoMejorCompre = fopen(nombreArchivoMejorCompre, "w");
   fprintf(archivoMejorCompre, "%.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
-  free(nombreArchivoMejorCompre);
   fclose(archivoMejorCompre);
-  float* indicesATomar_CPU = (float*) malloc(cantCoefsMejorCompre*sizeof(float));
-  if(cantCoefsMejorCompre > 0)
-  {
-    for(int k=0; k<cantCoefsMejorCompre; k++)
-    {
-      indicesATomar_CPU[k] = MC_modulo_indicesOrde_CPU[k];
-    }
-    af::array indicesATomar_GPU(cantCoefsMejorCompre, indicesATomar_CPU);
-    af::array indRepComp = af::constant(0, largo);
-    indRepComp(indicesATomar_GPU) = 1;
-    indicesATomar_GPU.unlock();
-    af::array MC_imag_GPU(N*N, MC_imag);
-    af::array MC_real_GPU(N*N, MC_real);
-    MC_imag_GPU = MC_imag_GPU * indRepComp;
-    MC_real_GPU = MC_real_GPU * indRepComp;
-    af::eval(MC_imag_GPU);
-    af::eval(MC_real_GPU);
-    af::sync();
-    indRepComp.unlock();
-    float* auxiliar_MC_imag_GPU = MC_imag_GPU.device<float>();
-    float* auxiliar_MC_real_GPU = MC_real_GPU.device<float>();
-    cudaMemcpy(MC_comp_imag, auxiliar_MC_imag_GPU, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-    MC_imag_GPU.unlock();
-    cudaMemcpy(MC_comp_real, auxiliar_MC_real_GPU, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-    MC_real_GPU.unlock();
-    *tiempoReconsParteImag_MejorCompresion = clock();
-    float* estimacionFourier_compre_ParteImag = estimacionDePlanoDeFourier(MV_AF, N, N, MC_comp_imag, N, N, MU_AF, numGPU);
-    *tiempoReconsParteImag_MejorCompresion = clock() - *tiempoReconsParteImag_MejorCompresion;
-    *tiempoReconsParteReal_MejorCompresion  = clock();
-    float* estimacionFourier_compre_ParteReal = estimacionDePlanoDeFourier(MV_AF, N, N, MC_comp_real, N, N, MU_AF, numGPU);
-    *tiempoReconsParteReal_MejorCompresion = clock() - *tiempoReconsParteReal_MejorCompresion;
-    char* nombreArchivoReconsImgComp = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreArReconsCompreImg)+sizeof(char)*4);
-    strcpy(nombreArchivoReconsImgComp, rutaADirecSec);
-    strcat(nombreArchivoReconsImgComp, "/");
-    strcat(nombreArchivoReconsImgComp, nombreArReconsCompreImg);
-    float PSNRActual = calculoDePSNRDeRecorte(estimacionFourier_compre_ParteImag, estimacionFourier_compre_ParteReal, N, nombreArchivoReconsImgComp, tiempoTransInver_MejorCompresion);
-    cudaFree(estimacionFourier_compre_ParteImag);
-    cudaFree(estimacionFourier_compre_ParteReal);
-  }
-  else
-  {
-    *tiempoReconsParteImag_MejorCompresion = clock();
-    *tiempoReconsParteImag_MejorCompresion = clock() - *tiempoReconsParteImag_MejorCompresion;
-    *tiempoReconsParteReal_MejorCompresion = clock();
-    *tiempoReconsParteReal_MejorCompresion = clock() - *tiempoReconsParteReal_MejorCompresion;
-  }
-  free(indicesATomar_CPU);
+  free(nombreArchivoMejorCompre);
+  printf("calPSNR 10\n");
+  *tiempoReconsParteImag_MejorCompresion = clock();
+  *tiempoReconsParteImag_MejorCompresion = clock() - *tiempoReconsParteImag_MejorCompresion;
+  *tiempoReconsParteReal_MejorCompresion = clock();
+  *tiempoReconsParteReal_MejorCompresion = clock() - *tiempoReconsParteReal_MejorCompresion;
   cudaFree(MC_comp_imag);
   cudaFree(MC_comp_real);
   cudaFree(cantidadPorcentualDeCoefs);
@@ -2144,8 +2106,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   cudaFree(MV_AF);
   free(coefsNormalizados);
   free(MC_modulo_indicesOrde_CPU);
-  free(nombreArchivoDatosDeIte);
-  free(nombreArchivoDatosDeIteLegible);
+  printf("calPSNR 11\n");
   return datosDelMin;
 }
 
@@ -2383,10 +2344,11 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
     fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
     fclose(archivoInfoTiemposEjecu);
   }
+  free(nombreArchivoInfoTiemposEjecu);
   free(rutaADirecSec);
 }
 
-void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque, int numGPU)
+void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, long cantVisi, long N, float* matrizDeUnosTamN, int tamBloque, int numGPU, int numThread)
 {
   float inicioPorcenCompre = 0.0;
   // float terminoPorcenCompre = 0.2;
@@ -2472,7 +2434,7 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   free(nombreArchivoMin_real);
   free(nombreArchivoCoefs_real);
 
-
+  printf("1 - %d\n", numThread);
    // ############### CALCULO NIVEL DE INFORMACION ##############
   clock_t tiempoInfo;
   tiempoInfo = clock();
@@ -2481,7 +2443,7 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   float tiempoTotalInfo = ((float)tiempoInfo)/CLOCKS_PER_SEC;
   cudaFree(MU);
   cudaFree(MV);
-
+  printf("2 - %d\n", numThread);
 
    // ############### RECONSTRUCCION DEL PLANO GRILLEADO Y ALMACENAMIENTO DE LA RECONSTRUCCION DE LA IMAGEN ##############
   char* nombreArchivoReconsImg = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreDirSec)*strlen(nombreArReconsImg)*sizeof(char)+sizeof(char)*3);
@@ -2515,7 +2477,7 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   cudaFree(estimacionFourier_ParteImag);
   cudaFree(estimacionFourier_ParteReal);
   free(nombreArchivoReconsImg);
-
+  printf("3 - %d\n", numThread);
 
    // ############### CALCULO DE GRADO DE COMPRESION ##############
   char* rutaADirecTer = (char*) malloc(strlen(rutaADirecSec)*strlen(nombreDirTer)*sizeof(char)+sizeof(char)*3);
@@ -2528,6 +2490,7 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
     printf("PROGRAMA ABORTADO.\n");
     exit(0);
   }
+  printf("4 - %d\n", numThread);
   strcat(rutaADirecTer, "/");
   clock_t tiempoReconsFourierPartImagComp;
   clock_t tiempoReconsFourierPartRealComp;
@@ -2539,21 +2502,23 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
+  printf("5 - %d\n", numThread);
   free(rutaADirecTer);
   char* nombreArchivoInfoComp = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoCompresion)*sizeof(char)+sizeof(char)*2);
   strcpy(nombreArchivoInfoComp, nombreDirPrin);
   strcat(nombreArchivoInfoComp, "/");
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
-  // float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
-  // #pragma omp critical
-  // {
-  //   FILE* archivo = fopen(nombreArchivoInfoComp, "a");
-  //   fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
-  //   fclose(archivo);
-  // }
+  float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
+  printf("6 - %d\n", numThread);
+  #pragma omp critical
+  {
+    FILE* archivo = fopen(nombreArchivoInfoComp, "a");
+    fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
+    fclose(archivo);
+  }
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
-  // free(datosDelMin);
+  free(datosDelMin);
 
   cudaFree(MC_real);
   cudaFree(MC_imag);
@@ -2562,7 +2527,7 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
   float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
   float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
-
+  printf("7 - %d\n", numThread);
    // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
   strcpy(nombreArchivoInfoTiemposEjecu, nombreDirPrin);
@@ -2574,6 +2539,8 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
     fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
     fclose(archivoInfoTiemposEjecu);
   }
+  printf("8 - %d\n", numThread);
+  free(nombreArchivoInfoTiemposEjecu);
   free(rutaADirecSec);
 }
 
@@ -2766,6 +2733,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
     fclose(archivoInfoTiemposEjecu);
   }
   free(rutaADirecSec);
+  free(nombreArchivoInfoTiemposEjecu);
 }
 
 void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, char nombreDirTer[], float ancho, float cotaEnergia, int iterActual, int maxIter, float tol, float* u, float* v, float* w, float* visi_parteImaginaria, float* visi_parteReal, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float* matrizDeUnosTamN, float estrechezDeBorde, int tamBloque, int numGPU, float* matrizDeUnosNxN)
@@ -2956,7 +2924,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
     fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
     fclose(archivoInfoTiemposEjecu);
   }
-
+  free(nombreArchivoInfoTiemposEjecu);
   free(rutaADirecSec);
 }
 
@@ -3464,7 +3432,7 @@ void calculoDeInfoCompre_BaseInvCuadra(char nombreArchivo[], int maxIter, float 
         int deviceId = thread_id%4;
         cudaSetDevice(deviceId);
         af::setDevice(deviceId);
-        calCompSegunAncho_InvCuadra_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, anchoActual, cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId);
+        calCompSegunAncho_InvCuadra_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, anchoActual, cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId, thread_id);
         free(numComoString);
         free(nombreDirSecCopia);
       }
@@ -3843,7 +3811,7 @@ void reciclador_calCompSegunAncho_Rect_escritura(float* MC_imag, float* MC_real,
     fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
     fclose(archivoInfoTiemposEjecu);
   }
-
+  free(nombreArchivoInfoTiemposEjecu);
   free(rutaADirecSec);
 }
 
@@ -4474,6 +4442,7 @@ void reciclador_calCompSegunAncho_Normal_escritura(float* MC_imag, float* MC_rea
     fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
     fclose(archivoInfoTiemposEjecu);
   }
+  free(nombreArchivoInfoTiemposEjecu);
   free(rutaADirecSec);
 }
 
@@ -4661,6 +4630,10 @@ int main()
 
 
   // for i in {0..152}; do cp /disk2/tmp/experi_hd142_Normal_linspacevariable_visi153/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Normal_linspacevariable_visi153/curva$i.txt; done
+
+
+  //for i in {0..5}; do head /srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/ite$i/minCoefs_imag.txt; done
+
   long cantVisi = 15034;
   long inicio = 0;
   long fin = 15034;
@@ -4704,9 +4677,9 @@ int main()
   // char nombreArchivo[] = "./co65.ms";
   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
 
-  // ########### PC-LAB ##############
-  char nombreArchivo[] = "/home/rarmijo/hd142_b9cont_self_tav.ms";
-  char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+  // // ########### PC-LAB ##############
+  // char nombreArchivo[] = "/home/rarmijo/hd142_b9cont_self_tav.ms";
+  // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
 
   // // ########### BEAM ##############
   // char nombreArchivo[] = "./HLTau_B6cont.calavg.tav300s";
@@ -4720,9 +4693,9 @@ int main()
   // char nombreArchivo[] = "./co65.ms";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // ########### BEAM ##############
+  char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // // ########### BEAM ##############
   // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
