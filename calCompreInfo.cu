@@ -1800,12 +1800,11 @@ float calculoDePSNRDeRecorte(float* estimacionFourier_ParteImag, float* estimaci
   return PSNR;
 }
 
-float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, clock_t* tiempoReconsParteImag_MejorCompresion, clock_t* tiempoReconsParteReal_MejorCompresion, clock_t* tiempoTransInver_MejorCompresion, int tamBloque, int numGPU)
+float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInfo, char rutaADirecSec[], char rutaADirecTer[], char nombreArReconsCompreImg[], float* MC_imag, float* MC_real, float* MV_AF, float* MU_AF, long N, int tamBloque, int numGPU)
 {
   float cotaMinPSNR = 0.75;
   float cotaMinCompresion = 0.2;
   float* datosDelMin = (float*) malloc(sizeof(float)*8);
-  long cantCoefsMejorCompre = 0;
   char nombreArchivoDatosMinPSNR[] = "mejorTradeOffPSNRCompre.txt";
   char nombreArchivoCompreImg[] = "compreImg";
   char nombreDatosDeIte[] = "datosDeIte.txt";
@@ -1871,25 +1870,17 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
     }
   }
   fclose(archivoIdsCoefsCeroAporte);
+  free(nombreAbsolutoCoefsCeroAporte);
   // printf("La cantidad de coefs cero aporte es %d\n", contadorCoefsCeroAporte);
   float finIntervalo = ((float) (largo-contadorCoefsCeroAporte))/largo;
   // printf("La porcentaje de coefs utiles es %f\n", finIntervalo);
   float* paramEvaInfo = linspace(inicioIntervalo/100.0, finIntervalo, cantParamEvaInfo);
-  free(nombreAbsolutoCoefsCeroAporte);
   printf("calPSNR 3\n");
   long cantCoefsParaCota = 0;
   float sumador = 0.0;
   long iExterno = 0;
   float* cantidadPorcentualDeCoefs = linspace(0.0, largo, largo+1);
   combinacionLinealMatrices(0.0, cantidadPorcentualDeCoefs, largo+1, 1, 1.0/largo, cantidadPorcentualDeCoefs, tamBloque, numGPU);
-  char* nombreArchivoDatosDeIte = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIte)+sizeof(char)*4);
-  strcpy(nombreArchivoDatosDeIte, rutaADirecSec);
-  strcat(nombreArchivoDatosDeIte, "/");
-  strcat(nombreArchivoDatosDeIte, nombreDatosDeIte);
-  char* nombreArchivoDatosDeIteLegible = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIteLegible)+sizeof(char)*4);
-  strcpy(nombreArchivoDatosDeIteLegible, rutaADirecSec);
-  strcat(nombreArchivoDatosDeIteLegible, "/");
-  strcat(nombreArchivoDatosDeIteLegible, nombreDatosDeIteLegible);
   float* vectorDePSNR = (float*) calloc(cantParamEvaInfo, sizeof(float));
   float* porcenReal = (float*) calloc(cantParamEvaInfo, sizeof(float));
   float* porcenIdeal = (float*) calloc(cantParamEvaInfo, sizeof(float));
@@ -1976,7 +1967,15 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
     if(maximoPSNR < vectorDePSNR[j])
       maximoPSNR = vectorDePSNR[j];
   }
-  for(long j=0; j<cantParamEvaInfo; j++)
+  char* nombreArchivoDatosDeIte = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIte)+sizeof(char)*4);
+  strcpy(nombreArchivoDatosDeIte, rutaADirecSec);
+  strcat(nombreArchivoDatosDeIte, "/");
+  strcat(nombreArchivoDatosDeIte, nombreDatosDeIte);
+  char* nombreArchivoDatosDeIteLegible = (char*) malloc(sizeof(char)*strlen(rutaADirecSec)*strlen(nombreDatosDeIteLegible)+sizeof(char)*4);
+  strcpy(nombreArchivoDatosDeIteLegible, rutaADirecSec);
+  strcat(nombreArchivoDatosDeIteLegible, "/");
+  strcat(nombreArchivoDatosDeIteLegible, nombreDatosDeIteLegible);
+  for(int j=0; j<cantParamEvaInfo; j++)
   {
     porcenPSNRConRespectoTotal[j] = vectorDePSNR[j]/maximoPSNR;
     FILE* archivoDatosDeIte = fopen(nombreArchivoDatosDeIte, "a");
@@ -2037,6 +2036,7 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
       }
     }
   }
+  free(vectorDePSNRFiltrado);
   printf("calPSNR 7\n");
   if(cantPtsVentana > 0)
   {
@@ -2051,13 +2051,11 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
     cudaMemcpy(vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU, auxiliar_vectorDeDifePSNREntrePtosAdya_indicesOrde_GPU, cantPtsVentana*sizeof(int), cudaMemcpyDeviceToHost);
     vectorDeDifePSNREntrePtosAdya_indicesOrde_GPU.unlock();
     int indiceElegido = vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU[0] + inicioDeVentana - 1;
-    // printf("El indice elegido es %d\n", indiceElegido);
     free(vectorDeDifePSNREntrePtosAdya_indicesOrde_CPU);
     datosDelMin[0] = abs(porcenIdeal[indiceElegido]-1);
     datosDelMin[1] = porcenIdeal[indiceElegido];
     datosDelMin[2] = abs(porcenReal[indiceElegido]-1);
     datosDelMin[3] = porcenReal[indiceElegido];
-    cantCoefsMejorCompre = (int) cantCoefsUsadas[indiceElegido];
     datosDelMin[4] = cantCoefsUsadas[indiceElegido];
     datosDelMin[5] = vectorDePorcenEnergia[indiceElegido];
     datosDelMin[6] = vectorDePSNR[indiceElegido];
@@ -2069,7 +2067,6 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
     datosDelMin[1] = 0;
     datosDelMin[2] = 0;
     datosDelMin[3] = 0;
-    cantCoefsMejorCompre = 0;
     datosDelMin[4] = 0;
     datosDelMin[5] = 0;
     datosDelMin[6] = 0;
@@ -2077,7 +2074,6 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   }
   printf("calPSNR 8\n");
   free(vectorDeDifePSNREntrePtosAdya);
-  free(vectorDePSNRFiltrado);
   free(porcenIdeal);
   free(porcenReal);
   free(cantCoefsUsadas);
@@ -2094,16 +2090,10 @@ float* calPSNRDeDistintasCompresiones(float inicioIntervalo, int cantParamEvaInf
   fclose(archivoMejorCompre);
   free(nombreArchivoMejorCompre);
   printf("calPSNR 10\n");
-  *tiempoReconsParteImag_MejorCompresion = clock();
-  *tiempoReconsParteImag_MejorCompresion = clock() - *tiempoReconsParteImag_MejorCompresion;
-  *tiempoReconsParteReal_MejorCompresion = clock();
-  *tiempoReconsParteReal_MejorCompresion = clock() - *tiempoReconsParteReal_MejorCompresion;
   cudaFree(MC_comp_imag);
   cudaFree(MC_comp_real);
   cudaFree(cantidadPorcentualDeCoefs);
   cudaFree(paramEvaInfo);
-  cudaFree(MU_AF);
-  cudaFree(MV_AF);
   free(coefsNormalizados);
   free(MC_modulo_indicesOrde_CPU);
   printf("calPSNR 11\n");
@@ -2299,13 +2289,10 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
     exit(0);
   }
   strcat(rutaADirecTer, "/");
-  clock_t tiempoReconsFourierPartImagComp;
-  clock_t tiempoReconsFourierPartRealComp;
-  clock_t tiempoReconsTransInverComp;
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, tamBloque, numGPU);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -2329,9 +2316,6 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   cudaFree(MC_imag);
   cudaFree(MU_AF);
   cudaFree(MV_AF);
-  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
 
    // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
@@ -2341,7 +2325,7 @@ void calCompSegunAncho_Hermite_escritura(char nombreDirPrin[], char* nombreDirSe
   #pragma omp critical
   {
     FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
-    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver);
     fclose(archivoInfoTiemposEjecu);
   }
   free(nombreArchivoInfoTiemposEjecu);
@@ -2492,30 +2476,25 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   }
   printf("4 - %d\n", numThread);
   strcat(rutaADirecTer, "/");
-  clock_t tiempoReconsFourierPartImagComp;
-  clock_t tiempoReconsFourierPartRealComp;
-  clock_t tiempoReconsTransInverComp;
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, tamBloque, numGPU);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
   printf("5 - %d\n", numThread);
   free(rutaADirecTer);
   char* nombreArchivoInfoComp = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoCompresion)*sizeof(char)+sizeof(char)*2);
-  strcpy(nombreArchivoInfoComp, nombreDirPrin);
-  strcat(nombreArchivoInfoComp, "/");
+  strcpy(nombreArchivoInfoComp, rutaADirecSec);
   strcat(nombreArchivoInfoComp, nombreArInfoCompresion);
   float nivelDeCompresion = 1.0 - datosDelMin[4] * 1.0 / N*N;
   printf("6 - %d\n", numThread);
-  #pragma omp critical
-  {
+
     FILE* archivo = fopen(nombreArchivoInfoComp, "a");
     fprintf(archivo, "%d %f %.12f %.12e %.12e %.12f %.12e %.12e %.12e %.12e %ld %.12e %.12e %.12e\n", iterActual, ancho/delta_u, ancho, medidasDeInfo[0], medidasDeInfo[1], nivelDeCompresion, datosDelMin[0], datosDelMin[1], datosDelMin[2], datosDelMin[3], (long) datosDelMin[4], datosDelMin[5], datosDelMin[6], datosDelMin[7]);
     fclose(archivo);
-  }
+
   free(nombreArchivoInfoComp);
   free(medidasDeInfo);
   free(datosDelMin);
@@ -2524,21 +2503,16 @@ void calCompSegunAncho_InvCuadra_escritura(char nombreDirPrin[], char* nombreDir
   cudaFree(MC_imag);
   cudaFree(MU_AF);
   cudaFree(MV_AF);
-  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
   printf("7 - %d\n", numThread);
    // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
-  strcpy(nombreArchivoInfoTiemposEjecu, nombreDirPrin);
-  strcat(nombreArchivoInfoTiemposEjecu, "/");
+  strcpy(nombreArchivoInfoTiemposEjecu, rutaADirecSec);
   strcat(nombreArchivoInfoTiemposEjecu, nombreArInfoTiemposEjecu);
-  #pragma omp critical
-  {
+
     FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
-    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver);
     fclose(archivoInfoTiemposEjecu);
-  }
+
   printf("8 - %d\n", numThread);
   free(nombreArchivoInfoTiemposEjecu);
   free(rutaADirecSec);
@@ -2687,13 +2661,10 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
     exit(0);
   }
   strcat(rutaADirecTer, "/");
-  clock_t tiempoReconsFourierPartImagComp;
-  clock_t tiempoReconsFourierPartRealComp;
-  clock_t tiempoReconsTransInverComp;
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, tamBloque, numGPU);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -2717,9 +2688,6 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   cudaFree(MC_imag);
   cudaFree(MU_AF);
   cudaFree(MV_AF);
-  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
 
    // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
@@ -2729,7 +2697,7 @@ void calCompSegunAncho_Normal_escritura(char nombreDirPrin[], char* nombreDirSec
   #pragma omp critical
   {
     FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
-    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver);
     fclose(archivoInfoTiemposEjecu);
   }
   free(rutaADirecSec);
@@ -2879,13 +2847,10 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
     exit(0);
   }
   strcat(rutaADirecTer, "/");
-  clock_t tiempoReconsFourierPartImagComp;
-  clock_t tiempoReconsFourierPartRealComp;
-  clock_t tiempoReconsTransInverComp;
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, tamBloque, numGPU);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -2909,9 +2874,6 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   cudaFree(MC_imag);
   cudaFree(MU_AF);
   cudaFree(MV_AF);
-  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
 
   // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
@@ -2921,7 +2883,7 @@ void calCompSegunAncho_Rect_escritura(char nombreDirPrin[], char* nombreDirSec, 
   #pragma omp critical
   {
     FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
-    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalMinPartImag, tiempoTotalMinPartReal, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver);
     fclose(archivoInfoTiemposEjecu);
   }
   free(nombreArchivoInfoTiemposEjecu);
@@ -3417,10 +3379,10 @@ void calculoDeInfoCompre_BaseInvCuadra(char nombreArchivo[], int maxIter, float 
   free(nombreArchivoDetallesLinspace);
 
   // int i = 0;
-  #pragma omp parallel num_threads(70)
+  #pragma omp parallel num_threads(4)
   {
       #pragma omp for schedule(dynamic, 1)
-      for(int i=0; i<cantParamEvaInfo; i++)
+      for(int i=45; i<cantParamEvaInfo; i++)
       {
         int anchoActual = paramEvaInfo[i];
         char* numComoString = numAString(&i);
@@ -3470,7 +3432,7 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
   // printf("El optimo esta en %.12f\n", optimo);
 
   float limitesDeZonas[] = {0.001, 2.0, 3.0};
-  float cantPuntosPorZona[] = {300, 100};
+  float cantPuntosPorZona[] = {400, 800};
   int cantPtosLimites = 3;
   float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
   float* paramEvaInfo;
@@ -3491,7 +3453,7 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
   free(nombreArchivoDetallesLinspace);
 
   // int i = 0;
-  #pragma omp parallel num_threads(4)
+  #pragma omp parallel num_threads(70)
   {
       #pragma omp for schedule(dynamic, 1)
       for(int i=0; i<cantParamEvaInfo; i++)
@@ -3502,9 +3464,10 @@ void calculoDeInfoCompre_BaseNormal(char nombreArchivo[], int maxIter, float tol
         strcpy(nombreDirSecCopia, nombreDirSec);
         strcat(nombreDirSecCopia, numComoString);
         int thread_id = omp_get_thread_num();
-        cudaSetDevice(thread_id);
-        af::setDevice(thread_id);
-        calCompSegunAncho_Normal_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, thread_id);
+        int deviceId = thread_id%4;
+        cudaSetDevice(deviceId);
+        af::setDevice(deviceId);
+        calCompSegunAncho_Normal_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque, deviceId);
         free(numComoString);
         free(nombreDirSecCopia);
       }
@@ -3585,10 +3548,10 @@ void calculoDeInfoCompre_BaseRect(char nombreArchivo[], int maxIter, float tolGr
       strcpy(nombreDirSecCopia, nombreDirSec);
       strcat(nombreDirSecCopia, numComoString);
       int thread_id = omp_get_thread_num();
-      // int thread_id = 0;
-      cudaSetDevice(thread_id);
-      af::setDevice(thread_id);
-      calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, estrechezDeBorde, tamBloque, thread_id, matrizDeUnosNxN);
+      int deviceId = thread_id%4;
+      cudaSetDevice(deviceId);
+      af::setDevice(deviceId);
+      calCompSegunAncho_Rect_escritura(nombreDirPrin, nombreDirSecCopia, nombreDirTer, paramEvaInfo[i], cotaEnergia, i, maxIter, tolGrad, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, estrechezDeBorde, tamBloque, deviceId, matrizDeUnosNxN);
       free(numComoString);
       free(nombreDirSecCopia);
     }
@@ -3766,13 +3729,10 @@ void reciclador_calCompSegunAncho_Rect_escritura(float* MC_imag, float* MC_real,
     exit(0);
   }
   strcat(rutaADirecTer, "/");
-  clock_t tiempoReconsFourierPartImagComp;
-  clock_t tiempoReconsFourierPartRealComp;
-  clock_t tiempoReconsTransInverComp;
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, tamBloque, numGPU);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -3796,9 +3756,6 @@ void reciclador_calCompSegunAncho_Rect_escritura(float* MC_imag, float* MC_real,
   cudaFree(MC_imag);
   cudaFree(MU_AF);
   cudaFree(MV_AF);
-  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
 
   // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
@@ -3808,7 +3765,7 @@ void reciclador_calCompSegunAncho_Rect_escritura(float* MC_imag, float* MC_real,
   #pragma omp critical
   {
     FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
-    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver);
     fclose(archivoInfoTiemposEjecu);
   }
   free(nombreArchivoInfoTiemposEjecu);
@@ -4385,7 +4342,7 @@ void reciclador_calCompSegunAncho_Normal_escritura(float* MC_imag, float* MC_rea
   free(nombreArchivoReconsImg);
 
 
-   // ############### CALCULO DE GRADO DE COMPRESION ##############
+  // ############### CALCULO DE GRADO DE COMPRESION ##############
   char* rutaADirecTer = (char*) malloc(strlen(rutaADirecSec)*strlen(nombreDirTer)*sizeof(char)+sizeof(char)*3);
   strcpy(rutaADirecTer, rutaADirecSec);
   strcat(rutaADirecTer, "/");
@@ -4397,13 +4354,10 @@ void reciclador_calCompSegunAncho_Normal_escritura(float* MC_imag, float* MC_rea
     exit(0);
   }
   strcat(rutaADirecTer, "/");
-  clock_t tiempoReconsFourierPartImagComp;
-  clock_t tiempoReconsFourierPartRealComp;
-  clock_t tiempoReconsTransInverComp;
   printf("...Comenzando calculo de compresiones...\n");
   clock_t tiempoCompresion;
   tiempoCompresion = clock();
-  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, &tiempoReconsFourierPartImagComp, &tiempoReconsFourierPartRealComp, &tiempoReconsTransInverComp, tamBloque, numGPU);
+  float* datosDelMin = calPSNRDeDistintasCompresiones(inicioPorcenCompre, cantPorcen, rutaADirecSec, rutaADirecTer, nombreArReconsCompreImg, MC_imag, MC_real, MV_AF, MU_AF, N, tamBloque, numGPU);
   tiempoCompresion = clock() - tiempoCompresion;
   float tiempoTotalCompresion = ((float)tiempoCompresion)/CLOCKS_PER_SEC;
   printf("Proceso de calculo de compresiones terminado.\n");
@@ -4427,9 +4381,6 @@ void reciclador_calCompSegunAncho_Normal_escritura(float* MC_imag, float* MC_rea
   cudaFree(MC_imag);
   cudaFree(MU_AF);
   cudaFree(MV_AF);
-  float tiempoTotalReconsFourierPartImagComp = ((float)tiempoReconsFourierPartImagComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsFourierPartRealComp = ((float)tiempoReconsFourierPartRealComp)/CLOCKS_PER_SEC;
-  float tiempoTotalReconsTransInverComp = ((float)tiempoReconsTransInverComp)/CLOCKS_PER_SEC;
 
    // ############### ESCRITURA DE ARCHIVO CON TIEMPOS DE EJECUCION ##############
   char* nombreArchivoInfoTiemposEjecu = (char*) malloc(strlen(nombreDirPrin)*strlen(nombreArInfoTiemposEjecu)*sizeof(char)+sizeof(char)*2);
@@ -4439,7 +4390,7 @@ void reciclador_calCompSegunAncho_Normal_escritura(float* MC_imag, float* MC_rea
   #pragma omp critical
   {
     FILE* archivoInfoTiemposEjecu = fopen(nombreArchivoInfoTiemposEjecu, "a");
-    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver, tiempoTotalReconsFourierPartImagComp, tiempoTotalReconsFourierPartRealComp, tiempoTotalReconsTransInverComp);
+    fprintf(archivoInfoTiemposEjecu, "%d %.12f %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e %.12e\n", iterActual, ancho, tiempoTotalCalculoMV, tiempoTotalCalculoMU, tiempoTotalInfo, tiempoTotalCompresion, tiempoTotalCalculoMV_AF, tiempoTotalCalculoMU_AF, tiempoTotalReconsFourierPartImag, tiempoTotalReconsFourierPartReal, tiempoTotalReconsTransInver);
     fclose(archivoInfoTiemposEjecu);
   }
   free(nombreArchivoInfoTiemposEjecu);
@@ -4632,7 +4583,7 @@ int main()
   // for i in {0..152}; do cp /disk2/tmp/experi_hd142_Normal_linspacevariable_visi153/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Normal_linspacevariable_visi153/curva$i.txt; done
 
 
-  //for i in {0..5}; do head /srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/ite$i/minCoefs_imag.txt; done
+  //for i in {0..5}; do head /srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/ite$i/minCoefs_imag.txt ; done
 
   long cantVisi = 15034;
   long inicio = 0;
@@ -4693,13 +4644,17 @@ int main()
   // char nombreArchivo[] = "./co65.ms";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // ########### BEAM ##############
-  char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
-  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // // ########### BEAM ##############
+  // char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // // ########### BEAM ##############
   // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+
+  // ########### BEAM ##############
+  char nombreArchivo[] = "./hd142_b9_model";
+  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // char* comandoScriptMSaTXT = (char*) malloc(strlen(comandoCasaconScript)*strlen(nombreArchivo)*sizeof(char)+sizeof(char)*3);
   // strcpy(comandoScriptMSaTXT, comandoCasaconScript);
@@ -4857,7 +4812,8 @@ int main()
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi400";
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Rect_linspacevariable_visi500";
   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_InvCuadra_linspacevariable_visi400y800";
-  char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800";
+  // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800_3";
+  char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4";
   char nombreDirSec[] = "ite";
   char nombreDirTer[] = "compresiones";
   char nombreArchivoTiempo[] = "tiempo.txt";
@@ -4884,8 +4840,8 @@ int main()
   // t = clock();
   double iStart = cpuSecond();
   // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
-  // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
-  calculoDeInfoCompre_BaseInvCuadra(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+  calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+  // calculoDeInfoCompre_BaseInvCuadra(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
   // calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
   // reciclador_calculoDeInfoCompre_BaseNormal(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque);
   // reciclador_calculoDeInfoCompre_BaseRect(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, tamBloque, matrizDeUnosNxN, estrechezDeBorde);
