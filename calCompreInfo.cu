@@ -1092,7 +1092,10 @@ __global__ void matrizDeSigno_kernel(float* a, float* c, float lambda, long cant
   if(miId < cantFilas*cantColumnas)
   {
     int valor = a[miId];
-    c[miId] = lambda * valor/abs(valor);
+    if (valor != 0.0)
+    {
+      c[miId] = lambda * valor/abs(valor);
+    }
   }
 }
 
@@ -1100,6 +1103,7 @@ float* matrizDeSigno(float* matrizA, long cantFilas, long cantColumnas, float la
 {
   float* matrizDeSigno;
   cudaMallocManaged(&matrizDeSigno, cantFilas*cantColumnas*sizeof(float));
+  cudaMemset(matrizDeSigno, 0, cantFilas*cantColumnas*sizeof(float));
   long cantBloques = ceil((float) cantFilas*cantColumnas/tamBloque);
   matrizDeSigno_kernel<<<cantBloques,tamBloque>>>(matrizA, matrizDeSigno, lambda, cantFilas, cantColumnas);
   cudaDeviceSynchronize();
@@ -1128,13 +1132,10 @@ float* matrizSoloDeSigno(float* matrizA, long cantFilas, long cantColumnas, int 
 
 float calCosto_l1(float lambda, float* residual, long cantVisi, float* w, float* MC, int N, int tamBloque, int numGPU)
 {
-  // float* matrizDeSignos_Coefs = matrizSoloDeSigno(MC, N, N, tamBloque);
-  // af::array matrizDeSignos_Coefs_GPU(N*N, matrizDeSignos_Coefs);
-  // cudaFree(matrizDeSignos_Coefs);
-  af::array matrizDeSignos_Coefs_GPU(N*N, MC);
-  float total_sumcoefs = af::sum<float>(matrizDeSignos_Coefs_GPU);
+  af::array matrizDeCoefs_GPU(N*N, MC);
+  float total_sumcoefs = af::sum<float>(abs(matrizDeCoefs_GPU));
   af::sync();
-  matrizDeSignos_Coefs_GPU.unlock();
+  matrizDeCoefs_GPU.unlock();
   float* resultado;
   cudaMallocManaged(&resultado, cantVisi*sizeof(float));
   hadamardProduct(residual, cantVisi, 1, w, resultado, tamBloque, numGPU);
@@ -2989,6 +2990,28 @@ double funcOptiInfo_Traza_Normal(double ancho, void* params)
   return -1 * medidaSumaDeLaDiagonal;
 }
 
+// double funcOptiValorDeZ(double z, void* params)
+// {
+//   float* visModelo_pActual;
+//   cudaMallocManaged(&visModelo_pActual,cantVisi*sizeof(float));
+//   cudaMemset(visModelo_pActual, 0, cantVisi*sizeof(float));
+//   calVisModelo(MV, cantFilasMV, cantColumnasMV, MC, cantColumnasMU, MU, matrizDeUnosTamN, visModelo_pActual, tamBloque, numGPU);
+//   combinacionLinealMatrices(1.0, residual, cantFilas, 1, z, visModelo_pActual, tamBloque, numGPU);
+//   hadamardProduct(visModelo_pActual, cantFilas, 1, visModelo_pActual, visModelo_pActual, tamBloque, numGPU);
+//   float total_minCuadra = dotProduct(visModelo_pActual, cantVisi, w, numGPU);
+//
+//
+//   struct parametros_BaseNormal* ps = (struct parametros_BaseNormal*) params;
+//   float* MV = calcularMV_Normal(ps->v, ps->delta_v, ps->cantVisi, ps->N, ancho, 1024, 1);
+//   float* MU = calcularMV_Normal(ps->u, ps->delta_u, ps->cantVisi, ps->N, ancho, 1024, 1);
+//   float* medidasDeInfo = calInfoFisherDiag(MV, ps->cantVisi, ps->N, MU, ps->w, 1024, 1);
+//   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+//   free(medidasDeInfo);
+//   cudaFree(MV);
+//   cudaFree(MU);
+//   return -1 * medidaSumaDeLaDiagonal;
+// }
+
 double goldenMin_BaseRect(float* u, float* v, float* w, float delta_u, float delta_v, float* matrizDeUnos, long cantVisi, long N, float estrechezDeBorde)
 {
   int status;
@@ -4612,10 +4635,11 @@ float* leerImagenFITS(char filename[])
 
 void normalizarImagenFITS(float* imagen, int N)
 {
+  float epsilon = 0.1;
   af::array imagen_GPU(N*N, imagen);
   float maximo = af::max<float>(imagen_GPU);
   float minimo = af::min<float>(imagen_GPU);
-  imagen_GPU = (imagen_GPU - minimo)/(maximo - minimo);
+  imagen_GPU = (imagen_GPU - minimo + epsilon)/(maximo - minimo + epsilon);
   af::eval(imagen_GPU);
   af::sync();
   float* auxiliar_imagen_GPU = imagen_GPU.device<float>();
@@ -4623,448 +4647,537 @@ void normalizarImagenFITS(float* imagen, int N)
   imagen_GPU.unlock();
 }
 
-void compararImagenesFITS(char* nombreImagen, char* nombreIdeal, int N)
+float compararImagenesFITS(char* nombreImagen, char* nombreIdeal, int N)
 {
   float* imagen = leerImagenFITS(nombreImagen);
   float* imagenIdeal = leerImagenFITS(nombreIdeal);
-  // normalizarImagenFITS(imagen, N);
-  // normalizarImagenFITS(imagenIdeal, N);
+  normalizarImagenFITS(imagen, N);
+  normalizarImagenFITS(imagenIdeal, N);
 
-  // af::array imagen_GPU(N*N, imagen);
-  // af::array imagenIdeal_GPU(N*N, imagenIdeal);
-  // af::array resultados_GPU(N*N);
-  // resultados_GPU = abs(imagenIdeal_GPU - imagen_GPU);
-  // float total = af::sum<float>(resultados_GPU);
-  // af::eval(resultados_GPU);
-  // af::sync();
-  // imagen_GPU.unlock();
-  // imagenIdeal_GPU.unlock();
-  // resultados_GPU.unlock();
-
-  float *resultados;
+  float* resultados;
   cudaMallocManaged(&resultados, N*N*sizeof(float));
-  for(int i=0; i<N*N; i++)
-  {
-    float numerador = abs(imagenIdeal[i] - imagen[i]);
-    // int denominador = abs(imagenIdeal[i]);
-    resultados[i] = numerador;
-  }
-  float total = 0.0;
-  for(int i=0; i<N*N; i++)
-  {
-    total += resultados[i];
-  }
 
-  printf("El resultado es %f\n", total);
+  af::array imagen_GPU(N*N, imagen);
+  af::array imagenIdeal_GPU(N*N, imagenIdeal);
+  af::array resultados_GPU(N*N);
+  resultados_GPU = abs(imagenIdeal_GPU - imagen_GPU);
+  float total = af::sum<float>(resultados_GPU);
+  af::eval(resultados_GPU);
+  af::sync();
+  float* auxiliar_resultados_GPU = resultados_GPU.device<float>();
+  cudaMemcpy(resultados, auxiliar_resultados_GPU, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+  imagen_GPU.unlock();
+  imagenIdeal_GPU.unlock();
+  resultados_GPU.unlock();
+
+  // float *resultados;
+  // cudaMallocManaged(&resultados, N*N*sizeof(float));
+  // for(int i=0; i<N*N; i++)
+  // {
+  //   float numerador = abs(imagenIdeal[i] - imagen[i]);
+  //   // int denominador = abs(imagenIdeal[i]);
+  //   resultados[i] = numerador;
+  // }
+  // float total = 0.0;
+  // for(int i=0; i<N*N; i++)
+  // {
+  //   total += resultados[i];
+  // }
+
+  // for(int i=0; i<N*N; i++)
+  // {
+  //   if(resultados[i] > 0.0)
+  //     printf("%f\n", resultados[i]);
+  // }
+
+  // printf("El resultado es %f\n", total);
+  return total;
 }
 
-
-int main()
+void calcularListaDeMAPE(char nombreArchivoSalida[], char nombreDirectorioPrincipal_ImagenObt[], char nombreDirectorioSecundario_ImagenObt[], char nombre_ImagenObt[], char nombreDirectorio_ImagenIdeal[], char nombre_ImagenIdeal[], int cantCarpetas, int N)
 {
-  char nombreImagen[] = "/home/rarmijo/imagenesAComparar/cerocomauno_ite40_hd142_b9_model_InvCuadra.fit";
-  char nombreImagenIdeal[] = "/home/rarmijo/imagenesAComparar/imagenIdeal_hd142_b9_model.fits";
-  compararImagenesFITS(nombreImagen, nombreImagenIdeal, 512);
+  char* nombreDir_ImagenIdeal = (char*) malloc(sizeof(char)*(strlen(nombreDirectorio_ImagenIdeal)+strlen(nombre_ImagenIdeal)+3));
+  strcpy(nombreDir_ImagenIdeal, nombreDirectorio_ImagenIdeal);
+  strcat(nombreDir_ImagenIdeal, "/");
+  strcat(nombreDir_ImagenIdeal, nombre_ImagenIdeal);
+  FILE* archivoAEscribir = fopen(nombreArchivoSalida, "w");
+  for(int i=0; i<cantCarpetas; i++)
+  {
+    char* numComoString = numAString(&i);
+    sprintf(numComoString, "%d", i);
+    char* nombreDir_ImagenObt = (char*) malloc(sizeof(char)*(strlen(nombreDirectorioPrincipal_ImagenObt)+strlen(nombreDirectorioSecundario_ImagenObt)+strlen(numComoString)+strlen(nombre_ImagenObt)+3));
+    strcpy(nombreDir_ImagenObt, nombreDirectorioPrincipal_ImagenObt);
+    strcat(nombreDir_ImagenObt, "/");
+    strcat(nombreDir_ImagenObt, nombreDirectorioSecundario_ImagenObt);
+    strcat(nombreDir_ImagenObt, numComoString);
+    strcat(nombreDir_ImagenObt, "/");
+    strcat(nombreDir_ImagenObt, nombre_ImagenObt);
+    float errorActual = compararImagenesFITS(nombreDir_ImagenObt, nombreDir_ImagenIdeal, N);
+    fprintf(archivoAEscribir, "%f\n", errorActual);
+    free(numComoString);
+    free(nombreDir_ImagenObt);
+  }
+  fclose(archivoAEscribir);
+}
+
+int main
+{
+  // char nombreArchivoSalida[] = "/home/rarmijo/listaDeErrores_experi_hd142_b9_model_Rect.txt";
+  // char nombreDirectorioPrincipal_ImagenObt[] = "/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_Rect";
+
+  // char nombreArchivoSalida[] = "/home/rarmijo/listaDeErrores_experi_hd142_Rect.txt";
+  // char nombreDirectorioPrincipal_ImagenObt[] = "/srv/nas01/rarmijo/resultados/experi_hd142_Rect";
+
+  // char nombreArchivoSalida[] = "/home/rarmijo/listaDeErrores_experi_hd142_b9_model_Normal.txt";
+  // char nombreDirectorioPrincipal_ImagenObt[] = "/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_Normal";
+
+  // char nombreArchivoSalida[] = "/home/rarmijo/listaDeErrores_experi_hd142_Normal.txt";
+  // char nombreDirectorioPrincipal_ImagenObt[] = "/srv/nas01/rarmijo/resultados/experi_hd142_Normal";
+
+  // char nombreArchivoSalida[] = "/home/rarmijo/listaDeErrores_experi_hd142_b9_model_InvCuadra.txt";
+  // char nombreDirectorioPrincipal_ImagenObt[] = "/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_InvCuadra";
+
+  char nombreArchivoSalida[] = "/home/rarmijo/listaDeErrores_experi_hd142_InvCuadra.txt";
+  char nombreDirectorioPrincipal_ImagenObt[] = "/srv/nas01/rarmijo/resultados/experi_hd142_InvCuadra";
+
+  char nombreDirectorioSecundario_ImagenObt[] = "ite";
+  char nombre_ImagenObt[] = "reconsImg.fit";
+  char nombreDirectorio_ImagenIdeal[] = "/home/rarmijo/imagenesAComparar";
+  char nombre_ImagenIdeal[] = "imagenIdeal.fits";
+  int cantCarpetas = 1202;
+  calcularListaDeMAPE(nombreArchivoSalida, nombreDirectorioPrincipal_ImagenObt, nombreDirectorioSecundario_ImagenObt, nombre_ImagenObt, nombreDirectorio_ImagenIdeal, nombre_ImagenIdeal, cantCarpetas, 512);
   exit(0);
 
-  // --csv --export-profile --print-gpu-summary
-
-  // /usr/lib/cuda-10.0/bin/nvprof --csv --log-file %p /home/rarmijo/calCompreInfo
-  // /usr/lib/cuda-10.0/bin/nvprof --csv --log-file %p /home/rarmijo/otro
-
-  // char** nombresDeArchivos = (char**) malloc(sizeof(char*)*cantArchivos);
-  // for(int i=0; i<cantArchivos; i++)
+  // char nombreArchivoActualCoefs_imag[] = "/srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/ite195/coefs_imag.txt";
+  // float* MC;
+  // cudaMallocManaged(&MC, 512*512*sizeof(float));
+  // lecturaDeTXTDeCoefs(nombreArchivoActualCoefs_imag, MC, 512, 512);
+  // for(int i=0; i<512*512; i++)
   // {
-  //   nombreArchivos[i] = (char*) malloc(sizeof(char)*100);
+  //   if(MC[i] != 0.0)
+  //     printf("%.12e\n", MC[i]);
   // }
-  //
-  // int largo = 150;
-  // int* vectorDeNumItera;
-  // cudaMallocManaged(&vectorDeNumItera, largo*sizeof(int));
-  // float* vectorDeAnchos;
-  // cudaMallocManaged(&vectorDeAnchos, largo*sizeof(float));
-  // lecturaDeArchivo_infoCompre(nombreArchivito, vectorDeNumItera, vectorDeAnchos, largo);
-  // float* MC_imag;
-  // cudaMallocManaged(&MC_imag, N*N*sizeof(float));
-  // float* MC_real;
-  // cudaMallocManaged(&MC_real, N*N*sizeof(float));
-  // char nombreUbiCoefsImag = "/home/rarmijo/experi_hd142_linspacevariable_Rect_visi153/ite34/coefs_imag.txt";
-  // lecturaDeTXTDeCoefs(nombreUbiCoefsImag, MC_imag, N, N);
-  // char nombreUbiCoefsReal = "/home/rarmijo/experi_hd142_linspacevariable_Rect_visi153/ite34/coefs_real.txt";
-  // lecturaDeTXTDeCoefs(nombreUbiCoefsReal, MC_real, N, N);
+  // exit(-1);
 
-  // 1/(1+(x/a)^2)
-  // int largo = 5;
-  // float *x;
-  // cudaMallocManaged(&x, largo*sizeof(float));
-  // x[0] = 1;
-  // x[1] = 2;
-  // x[2] = 6;
-  // x[3] = 10;
-  // x[4] = 20;
-  // float* salida = hermite(x, largo, 3, 1024, 0);
-  // imprimirMatrizColumna(salida, largo, 4);
-  // exit(1);
+  char nombreImagen1[] = "/home/rarmijo/imagenesAComparar/cerocomacuarentayochodeltau_ite195_experi_hd142_b9_model_Rect_linspacevariable_visi400y800.fit";
+  char nombreImagenIdeal[] = "/home/rarmijo/imagenesAComparar/imagenIdeal.fits";
+  compararImagenesFITS(nombreImagen1, nombreImagenIdeal, 512);
 
-  // PARAMETROS GENERALES
-  // long cantVisi = 1000;
-  // long inicio = 0;
-  // long fin = 1000;
+  char nombreImagen2[] = "/home/rarmijo/imagenesAComparar/cerocomanuevedeltau_ite363_experi_hd142_b9_model_Rect_linspacevariable_visi400y800.fit";
+  compararImagenesFITS(nombreImagen2, nombreImagenIdeal, 512);
 
-  // long cantVisi = 30000;
-  // long inicio = 0;
-  // long fin = 30000;
-
-  // for i in {0..31}; do cp /disk2/tmp/experi_hd142_Normal_linspacevariable_visi153/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_peque/curva$i.txt; done
-  // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_peque/* /home/yoyisaurio/Desktop/pequeno/
-
-  // for i in {0..950}; do cp /disk2/tmp/experi_hd142_Normal_reciclado_visi800/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Normal_reciclado_visi800/curva$i.txt; done
-  // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_experi_hd142_Normal_reciclado_visi800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_Normal_reciclado_visi800/
-  // sudo scp rarmijo@158.170.35.147:/disk2/tmp/experi_hd142_Normal_reciclado_visi800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_Normal_reciclado_visi800/
-
-  // for i in {0..1200}; do cp /disk2/tmp/experi_hd142_Rect_reciclado_visi800/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Rect_reciclado_visi800/curva$i.txt; done
-  // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_experi_hd142_Rect_reciclado_visi800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_Rect_reciclado_visi800/
-  // sudo scp rarmijo@158.170.35.147:/disk2/tmp/experi_hd142_Rect_reciclado_visi800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_Rect_reciclado_visi800/
-
-  // for i in {0..320}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte1/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
-  // for i in {320..799}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte2/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
-  // sudo scp /disk2/tmp/curvas_hd142_normal/* /home/yoyisaurio/Desktop/hd142_normal/
-
-
-  // cp /disk1/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/
-  // sudo scp rarmijo@158.170.35.139:/disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/
-  // for i in {0..1202}; do cp /disk1/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/curva$i.txt; done
-  // sudo scp /disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/
-
-
-  // cp /disk1/rarmijo/experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/
-  // sudo scp rarmijo@158.170.35.139:/disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/
-  // for i in {0..1202}; do cp /disk1/rarmijo/experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/curva$i.txt; done
-  // sudo scp /disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/
-
-
-  // cp /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800/infoCompre.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
-  // sudo scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
-  // for i in {0..1202}; do cp /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/curva$i.txt; done
-  // sudo scp /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
-
-
-  // cp /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/infoCompre.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/
-  // sudo scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/
-  // for i in {0..1202}; do cp /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/curva$i.txt; done
-  // sudo scp /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/
-
-  // for i in {0..999}; do if [ ! -d ite$i ]; then echo "ite$i"; fi; done
-
-  // for i in {0..950}; do if [ ! -d ite$i ]; then echo "ite$i"; fi; done
-
-  // for i in {0..950}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/coefs_imag.txt ]; then echo "ite$i"; fi ; done
-  // for i in {0..950}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/coefs_real.txt ]; then echo "ite$i"; fi ; done
-
-  // for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/curvaPSNRSuavizada.txt ]; then echo "ite$i"; fi ; done
-
-  // for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/idsCoefsCeroAporte.txt ]; then echo "ite$i"; fi ; done
-
-  // for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/mejorTradeOffPSNRCompre.txt ]; then echo "ite$i"; fi ; done
-
-  //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/datosDeIteLegible.txt ]; then echo "ite$i"; fi ; done
-
-  //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/datosDeIte.txt ]; then echo "ite$i"; fi ; done
-
-  //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/minCoefs_imag.txt ]; then echo "ite$i"; fi ; done
-
-  //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/minCoefs_real.txt ]; then echo "ite$i"; fi ; done
-
-  //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/reconsImg.fit ]; then echo "ite$i"; fi ; done
-
-
-  //for i in {680..1202}; do mv /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800_parte2/ite$i /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800 ; done
-
-  // for i in {680..693}; do rm -r /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/ite$i; done
-
-
-  //minCoefs_imag.txt
-  //minCoefs_real.txt
-  // 11 12 29 31 48 60
-  long cantVisi = 15034;
-  long inicio = 0;
-  long fin = 15034;
-
-  int tamBloque = 1024;
-  int N = 512;
-  // long N = 1600; //HLTau_B6cont.calavg.tav300s
-  int maxIter = 100;
-
-  float tolGrad = 1E-12;
-
-  float delta_x = 0.02;
-  // float delta_x = 0.005; //HLTau_B6cont.calavg.tav300s
-  // float delta_x = 0.03; //co65
-  float delta_x_rad = (delta_x * M_PI)/648000.0;
-  float delta_u = 1.0/(N*delta_x_rad);
-  float delta_v = 1.0/(N*delta_x_rad);
-
-  //PARAMETROS PARTICULARES DE BASE RECT
-  float estrechezDeBorde = 1000.0;
-
-  // float frecuencia;
-  // float *u, *v, *w, *visi_parteImaginaria, *visi_parteReal;
-  // cudaMallocManaged(&u, cantVisi*sizeof(float));
-  // cudaMallocManaged(&v, cantVisi*sizeof(float));
-  // cudaMallocManaged(&w, cantVisi*sizeof(float));
-  // cudaMallocManaged(&visi_parteImaginaria, cantVisi*sizeof(float));
-  // cudaMallocManaged(&visi_parteReal, cantVisi*sizeof(float));
-  // char nombreArchivo[] = "hd142_b9cont_self_tav.0.0.txt";
-  // lecturaDeTXT(nombreArchivo, &frecuencia, u, v, w, visi_parteImaginaria, visi_parteReal, cantVisi);
-
-  // // ########### NOTEBOOK ##############
-  // char nombreArchivo[] = "/home/yoyisaurio/Desktop/HLTau_B6cont.calavg.tav300s";
-  // char comandoCasaconScript[] = "/home/yoyisaurio/casa-pipeline-release-5.6.2-2.el7/bin/casa -c /home/yoyisaurio/Desktop/proyecto/deMSaTXT.py";
-
-  // // ########### PC-LAB ##############
-  // char nombreArchivo[] = "/home/rarmijo/Desktop/proyecto/HLTau_B6cont.calavg.tav300s";
-  // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
-
-  // // ########### PC-LAB ##############
-  // char nombreArchivo[] = "./co65.ms";
-  // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
-
-  // // ########### PC-LAB ##############
-  // char nombreArchivo[] = "/home/rarmijo/hd142_b9cont_self_tav.ms";
-  // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
-
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "./HLTau_B6cont.calavg.tav300s";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
-
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "./FREQ78.ms";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
-
-  // // // ########### BEAM ##############
-  // char nombreArchivo[] = "./co65.ms";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
-
-  // ########### BEAM ##############
-  char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
-  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
-
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
-
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "./hd142_b9_model";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
-
-  // char* comandoScriptMSaTXT = (char*) malloc(strlen(comandoCasaconScript)*strlen(nombreArchivo)*sizeof(char)+sizeof(char)*3);
-  // strcpy(comandoScriptMSaTXT, comandoCasaconScript);
-  // strcat(comandoScriptMSaTXT, " ");
-  // strcat(comandoScriptMSaTXT, nombreArchivo);
-  // system(comandoScriptMSaTXT);
-  // free(comandoScriptMSaTXT);
-
-
-  lectCantVisi(nombreArchivo, &cantVisi);
-  float *u, *v, *w, *visi_parteImaginaria, *visi_parteReal;
-  cudaMallocManaged(&u, cantVisi*sizeof(float));
-  cudaMallocManaged(&v, cantVisi*sizeof(float));
-  cudaMallocManaged(&w, cantVisi*sizeof(float));
-  cudaMallocManaged(&visi_parteImaginaria, cantVisi*sizeof(float));
-  cudaMallocManaged(&visi_parteReal, cantVisi*sizeof(float));
-  lectDeTXTcreadoDesdeMS(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal);
-  // lectDeTXTcreadoDesdeMSConLimite(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal, inicio, fin, cantVisi);
-
-  float* matrizDeUnos, *matrizDeUnosTamN, *matrizDeUnosNxN;
-  cudaMallocManaged(&matrizDeUnos, cantVisi*N*sizeof(float));
-  for(long i=0; i<(cantVisi*N); i++)
-  {
-    matrizDeUnos[i] = 1.0;
-  }
-  cudaMallocManaged(&matrizDeUnosTamN, N*sizeof(float));
-  for(long i=0; i<N; i++)
-  {
-    matrizDeUnosTamN[i] = 1.0;
-  }
-  cudaMallocManaged(&matrizDeUnosNxN, N*N*sizeof(float));
-  for(long i=0; i<N*N; i++)
-  {
-    matrizDeUnosNxN[i] = 1.0;
-  }
-
-  // int cantParamEvaInfo = 23;
-  // float limitesDeZonas[] = {0.001, 2.0, 3.0};
-  // float cantPuntosPorZona[] = {10, 10};
-  // int cantPtosLimites = 3;
-  // float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
-  // float* paramEvaInfo;
-  // cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
-  // combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, 0);
-  // FILE* archivito = fopen("/home/rarmijo/info_hd142_rect.txt", "w");
-  // for(int i=0; i<cantParamEvaInfo; i++)
-  // {
-  //   float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, paramEvaInfo[i], matrizDeUnos, tamBloque, 0);
-  //   float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, paramEvaInfo[i], matrizDeUnos, tamBloque, 0);
-  //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, 0);
-  //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
-  //   free(medidasDeInfo);
-  //   cudaFree(MV);
-  //   cudaFree(MU);
-  //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo_pre[i], medidaSumaDeLaDiagonal);
-  // }
-  // cudaFree(paramEvaInfo_pre);
-  // fclose(archivito);
-  // exit(1);
-
-  // int cantParamEvaInfo = 203;
-  // float limitesDeZonas[] = {0.001, 2.0, 3.0};
-  // float cantPuntosPorZona[] = {150, 50};
-  // int cantPtosLimites = 3;
-  // float* paramEvaInfo = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
-  // FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_hermite.txt", "w");
-  // int n = N-1;
-  // float maxu = buscarMaximo(u, cantVisi);
-  // float maxv = buscarMaximo(v, cantVisi);
-  // float max_radius = maximoEntre2Numeros(maxu,maxv);
-  // for(int i=0; i<cantParamEvaInfo; i++)
-  // {
-  //   float beta_u = paramEvaInfo[i]/max_radius;
-  //   float K = beta_u * (sqrt(2*n+1)+1);
-  //   float* x_samp = combinacionLinealMatrices_conretorno(K, u, cantVisi, 1, 0.0, u, tamBloque, 0);
-  //   float* y_samp = combinacionLinealMatrices_conretorno(K, v, cantVisi, 1, 0.0, v, tamBloque, 0);
-  //   float* MV = hermite(y_samp, cantVisi, n, tamBloque, 0);
-  //   float* MU = hermite(x_samp, cantVisi, n, tamBloque, 0);
-  //   cudaFree(x_samp);
-  //   cudaFree(y_samp);
-  //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, 1024, 0);
-  //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
-  //   free(medidasDeInfo);
-  //   cudaFree(MV);
-  //   cudaFree(MU);
-  //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo[i], medidaSumaDeLaDiagonal);
-  // }
-  // fclose(archivito);
-  // exit(1);
-
-
-  // int cantParamEvaInfo = 203;
-  // float limitesDeZonas[] = {0.001, 2.0, 3.0};
-  // float cantPuntosPorZona[] = {150, 50};
-  // int cantPtosLimites = 3;
-  // float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
-  // float* paramEvaInfo;
-  // cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
-  // combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, 0);
-  // FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_normal.txt", "w");
-  // for(int i=0; i<cantParamEvaInfo; i++)
-  // {
-  //   float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, paramEvaInfo[i], 1024, 0);
-  //   float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, paramEvaInfo[i], 1024, 0);
-  //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, 1024, 0);
-  //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
-  //   free(medidasDeInfo);
-  //   cudaFree(MV);
-  //   cudaFree(MU);
-  //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo_pre[i], medidaSumaDeLaDiagonal);
-  // }
-  // fclose(archivito);
-  // cudaFree(paramEvaInfo_pre);
-  // exit(1);
-
-
-  // float* resultado1, * resultado2;
-  // cudaMallocManaged(&resultado1, cantVisi*N*sizeof(float));
-  // cudaMallocManaged(&resultado2, cantVisi*N*sizeof(float));
-  //
-  // printf("...Comenzando calculo de MV...\n");
-  // float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
-  // printf("Calculo de MV completado.\n");
-  //
-  // printf("...Comenzando calculo de MU...\n");
-  // float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
-  // printf("Calculo de MU completado.\n");
-  //
-  //
-  // clock_t tiempoCalculo1;
-  // tiempoCalculo1 = clock();
-  // multMatrices(MV, cantVisi, N, MU, N, resultado1);
-  // tiempoCalculo1 = clock() - tiempoCalculo1;
-  // float tiempoTotalCalculo1 = ((float)tiempoCalculo1)/CLOCKS_PER_SEC;
-  //
-  // clock_t tiempoCalculo2;
-  // tiempoCalculo2 = clock();
-  // // multMatrices3(MV, cantVisi, N, MU, N, resultado2);
-  // tiempoCalculo2 = clock() - tiempoCalculo2;
-  // float tiempoTotalCalculo2 = ((float)tiempoCalculo2)/CLOCKS_PER_SEC;
-  //
-  // printf("La multiplicacion con cublas tomo %.12e segundos mientras que la dispersa tomo %.12e segundos.\n", tiempoTotalCalculo2, tiempoTotalCalculo1);
-  //
-  // exit(1);
-
-  float cotaEnergia = 0.99;
-  // char nombreDirPrin[] = "probando";
-  // char nombreDirPrin[] = "/disk2/tmp/probando";
-  // char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
-  // char nombreDirPrin[] = "experi_hd142_Normal_visi800";
-  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_linspacevariable_Rect_visi350";
-  // char nombreDirPrin[] = "/disk2/tmp/experi_HLTau_Band6_CalibratedData_linspacevariable_Rect_UnMillon";
-  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi153";
-  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Hermite_linspacevariable_visi153";
-  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi400";
-  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Rect_linspacevariable_visi500";
-  char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800";
-  // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800_3";
-  // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4";
-  char nombreDirSec[] = "ite";
-  char nombreDirTer[] = "compresiones";
-  char nombreArchivoTiempo[] = "tiempo.txt";
-  // int cantParamEvaInfo = 153;
-  int cantParamEvaInfo = 1203;
-  float inicioIntervalo = 0.001;
-  float finIntervalo = 3.0;
-  float tolGolden = 1E-12;
-  int iterActual = 0;
-
-  // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Rect_reciclado_visi800";
-  // char nombreDirSec[] = "ite";
-  // char nombreDirTer[] = "compresiones";
-  // char nombreArchivoTiempo[] = "tiempo.txt";
-  // // char nombreArchivoConNombres[] = "nombredeprueba.txt";
-  // char nombreArchivoConNombres[] = "datosAJuntar_Rect.txt";
-  // char nombreArchivoCoefs_imag[] = "coefs_imag.txt";
-  // char nombreArchivoCoefs_real[] = "coefs_real.txt";
-  // int cantArchivos = 2;
-  // int flag_multiThread = 1;
-  // char nombreArchivoInfoCompre[] = "infoCompre.txt";
-
-  // clock_t t;
-  // t = clock();
-  double iStart = cpuSecond();
-  // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
-  // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
-  calculoDeInfoCompre_BaseInvCuadra(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
-  // calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
-  // reciclador_calculoDeInfoCompre_BaseNormal(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque);
-  // reciclador_calculoDeInfoCompre_BaseRect(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, tamBloque, matrizDeUnosNxN, estrechezDeBorde);
-  double time_taken = cpuSecond() - iStart;
-  // t = clock() - t;
-  // float time_taken = ((float)t)/CLOCKS_PER_SEC;
-  char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*(strlen(nombreArchivoTiempo)+strlen(nombreDirPrin))+sizeof(char)*3);
-  strcpy(nombreCompletoArchivoTiempo, nombreDirPrin);
-  strcat(nombreCompletoArchivoTiempo, "/");
-  strcat(nombreCompletoArchivoTiempo, nombreArchivoTiempo);
-  FILE* archivoTiempo = fopen(nombreCompletoArchivoTiempo, "w");
-  double minutitos = time_taken/60;
-  double horas = minutitos/60;
-  printf("El tiempo de ejecucion fue %.12e segundos o %.12e minutos o %.12e horas.\n", time_taken, minutitos, horas);
-  fprintf(archivoTiempo, "El tiempo de ejecucion fue %.12e segundos o %.12e minutos o %.12e horas.\n", time_taken, minutitos, horas);
-  fclose(archivoTiempo);
-  free(nombreCompletoArchivoTiempo);
-
-  cudaFree(u);
-  cudaFree(v);
-  cudaFree(w);
-  cudaFree(visi_parteImaginaria);
-  cudaFree(visi_parteReal);
-  cudaFree(matrizDeUnos);
-  cudaFree(matrizDeUnosTamN);
+  char nombreImagen3[] = "/home/rarmijo/imagenesAComparar/undeltau_ite401_experi_hd142_b9_model_Rect_linspacevariable_visi400y800.fit";
+  compararImagenesFITS(nombreImagen3, nombreImagenIdeal, 512);
+  exit(0);
 }
+
+
+
+// int main()
+// {
+//
+//   // --csv --export-profile --print-gpu-summary
+//
+//   // /usr/lib/cuda-10.0/bin/nvprof --csv --log-file %p /home/rarmijo/calCompreInfo
+//   // /usr/lib/cuda-10.0/bin/nvprof --csv --log-file %p /home/rarmijo/otro
+//
+//   // char** nombresDeArchivos = (char**) malloc(sizeof(char*)*cantArchivos);
+//   // for(int i=0; i<cantArchivos; i++)
+//   // {
+//   //   nombreArchivos[i] = (char*) malloc(sizeof(char)*100);
+//   // }
+//   //
+//   // int largo = 150;
+//   // int* vectorDeNumItera;
+//   // cudaMallocManaged(&vectorDeNumItera, largo*sizeof(int));
+//   // float* vectorDeAnchos;
+//   // cudaMallocManaged(&vectorDeAnchos, largo*sizeof(float));
+//   // lecturaDeArchivo_infoCompre(nombreArchivito, vectorDeNumItera, vectorDeAnchos, largo);
+//   // float* MC_imag;
+//   // cudaMallocManaged(&MC_imag, N*N*sizeof(float));
+//   // float* MC_real;
+//   // cudaMallocManaged(&MC_real, N*N*sizeof(float));
+//   // char nombreUbiCoefsImag = "/home/rarmijo/experi_hd142_linspacevariable_Rect_visi153/ite34/coefs_imag.txt";
+//   // lecturaDeTXTDeCoefs(nombreUbiCoefsImag, MC_imag, N, N);
+//   // char nombreUbiCoefsReal = "/home/rarmijo/experi_hd142_linspacevariable_Rect_visi153/ite34/coefs_real.txt";
+//   // lecturaDeTXTDeCoefs(nombreUbiCoefsReal, MC_real, N, N);
+//
+//   // 1/(1+(x/a)^2)
+//   // int largo = 5;
+//   // float *x;
+//   // cudaMallocManaged(&x, largo*sizeof(float));
+//   // x[0] = 1;
+//   // x[1] = 2;
+//   // x[2] = 6;
+//   // x[3] = 10;
+//   // x[4] = 20;
+//   // float* salida = hermite(x, largo, 3, 1024, 0);
+//   // imprimirMatrizColumna(salida, largo, 4);
+//   // exit(1);
+//
+//   // PARAMETROS GENERALES
+//   // long cantVisi = 1000;
+//   // long inicio = 0;
+//   // long fin = 1000;
+//
+//   // long cantVisi = 30000;
+//   // long inicio = 0;
+//   // long fin = 30000;
+//
+//   // for i in {0..31}; do cp /disk2/tmp/experi_hd142_Normal_linspacevariable_visi153/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_peque/curva$i.txt; done
+//   // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_peque/* /home/yoyisaurio/Desktop/pequeno/
+//
+//   // for i in {0..950}; do cp /disk2/tmp/experi_hd142_Normal_reciclado_visi800/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Normal_reciclado_visi800/curva$i.txt; done
+//   // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_experi_hd142_Normal_reciclado_visi800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_Normal_reciclado_visi800/
+//   // sudo scp rarmijo@158.170.35.147:/disk2/tmp/experi_hd142_Normal_reciclado_visi800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_Normal_reciclado_visi800/
+//
+//   // for i in {0..1200}; do cp /disk2/tmp/experi_hd142_Rect_reciclado_visi800/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_experi_hd142_Rect_reciclado_visi800/curva$i.txt; done
+//   // sudo scp rarmijo@158.170.35.147:/disk2/tmp/curvas_experi_hd142_Rect_reciclado_visi800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_Rect_reciclado_visi800/
+//   // sudo scp rarmijo@158.170.35.147:/disk2/tmp/experi_hd142_Rect_reciclado_visi800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_Rect_reciclado_visi800/
+//
+//   // for i in {0..320}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte1/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
+//   // for i in {320..799}; do cp /disk2/tmp/experi_hd142_Normal_visi800_parte2/ite$i/curvaPSNRSuavizada.txt /disk2/tmp/curvas_hd142_normal/curva$i.txt; done
+//   // sudo scp /disk2/tmp/curvas_hd142_normal/* /home/yoyisaurio/Desktop/hd142_normal/
+//
+//
+//   // cp /disk1/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/
+//   // sudo scp rarmijo@158.170.35.139:/disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/
+//   // for i in {0..1202}; do cp /disk1/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/curva$i.txt; done
+//   // sudo scp /disk1/rarmijo/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_InvCuadra_linspacevariable_visi400y800/
+//
+//
+//   // cp /disk1/rarmijo/experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/
+//   // sudo scp rarmijo@158.170.35.139:/disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/
+//   // for i in {0..1202}; do cp /disk1/rarmijo/experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/curva$i.txt; done
+//   // sudo scp /disk1/rarmijo/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/
+//
+//
+//   // cp /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800/infoCompre.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
+//   // sudo scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
+//   // for i in {0..1202}; do cp /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/curva$i.txt; done
+//   // sudo scp /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
+//
+//
+//   // cp /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/infoCompre.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/
+//   // sudo scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/infoCompre.txt /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/
+//   // for i in {0..1202}; do cp /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/ite$i/curvaPSNRSuavizada.txt /srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/curva$i.txt; done
+//   // sudo scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/curvas_experi_hd142_b9_model_Rect_linspacevariable_visi400y800/* /home/yoyisaurio/Desktop/curvas_experi_hd142_b9_model_Normal_linspacevariable_visi400y800/
+//
+//   // scp -r rarmijo@158.170.35.139:/disk1/rarmijo/experi_hd142_b9_model_InvCuadra_linspacevariable_visi400y800/* /srv/nas01/rarmijo/resultados/experi_hd142_b9_model_InvCuadra
+//
+//
+//   // for i in {0..999}; do if [ ! -d ite$i ]; then echo "ite$i"; fi; done
+//
+//   // for i in {0..950}; do if [ ! -d ite$i ]; then echo "ite$i"; fi; done
+//
+//   // for i in {0..950}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/coefs_imag.txt ]; then echo "ite$i"; fi ; done
+//   // for i in {0..950}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/coefs_real.txt ]; then echo "ite$i"; fi ; done
+//
+//   // for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/curvaPSNRSuavizada.txt ]; then echo "ite$i"; fi ; done
+//
+//   // for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/idsCoefsCeroAporte.txt ]; then echo "ite$i"; fi ; done
+//
+//   // for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/mejorTradeOffPSNRCompre.txt ]; then echo "ite$i"; fi ; done
+//
+//   //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/datosDeIteLegible.txt ]; then echo "ite$i"; fi ; done
+//
+//   //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/datosDeIte.txt ]; then echo "ite$i"; fi ; done
+//
+//   //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/minCoefs_imag.txt ]; then echo "ite$i"; fi ; done
+//
+//   //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/minCoefs_real.txt ]; then echo "ite$i"; fi ; done
+//
+//   //for i in {0..900}; do if [ ! -e /srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4/ite$i/reconsImg.fit ]; then echo "ite$i"; fi ; done
+//
+//
+//   //for i in {680..1202}; do mv /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800_parte2/ite$i /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800 ; done
+//
+//   // for i in {680..693}; do rm -r /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/ite$i; done
+//
+//
+//   //minCoefs_imag.txt
+//   //minCoefs_real.txt
+//   // 11 12 29 31 48 60
+//   long cantVisi = 15034;
+//   long inicio = 0;
+//   long fin = 15034;
+//
+//   int tamBloque = 1024;
+//   int N = 512;
+//   // long N = 1600; //HLTau_B6cont.calavg.tav300s
+//   int maxIter = 100;
+//
+//   float tolGrad = 1E-12;
+//
+//   float delta_x = 0.02;
+//   // float delta_x = 0.005; //HLTau_B6cont.calavg.tav300s
+//   // float delta_x = 0.03; //co65
+//   float delta_x_rad = (delta_x * M_PI)/648000.0;
+//   float delta_u = 1.0/(N*delta_x_rad);
+//   float delta_v = 1.0/(N*delta_x_rad);
+//
+//   //PARAMETROS PARTICULARES DE BASE RECT
+//   float estrechezDeBorde = 1000.0;
+//
+//   // float frecuencia;
+//   // float *u, *v, *w, *visi_parteImaginaria, *visi_parteReal;
+//   // cudaMallocManaged(&u, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&v, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&w, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&visi_parteImaginaria, cantVisi*sizeof(float));
+//   // cudaMallocManaged(&visi_parteReal, cantVisi*sizeof(float));
+//   // char nombreArchivo[] = "hd142_b9cont_self_tav.0.0.txt";
+//   // lecturaDeTXT(nombreArchivo, &frecuencia, u, v, w, visi_parteImaginaria, visi_parteReal, cantVisi);
+//
+//   // // ########### NOTEBOOK ##############
+//   // char nombreArchivo[] = "/home/yoyisaurio/Desktop/HLTau_B6cont.calavg.tav300s";
+//   // char comandoCasaconScript[] = "/home/yoyisaurio/casa-pipeline-release-5.6.2-2.el7/bin/casa -c /home/yoyisaurio/Desktop/proyecto/deMSaTXT.py";
+//
+//   // // ########### PC-LAB ##############
+//   // char nombreArchivo[] = "/home/rarmijo/Desktop/proyecto/HLTau_B6cont.calavg.tav300s";
+//   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+//
+//   // // ########### PC-LAB ##############
+//   // char nombreArchivo[] = "./co65.ms";
+//   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+//
+//   // // ########### PC-LAB ##############
+//   // char nombreArchivo[] = "/home/rarmijo/hd142_b9cont_self_tav.ms";
+//   // char comandoCasaconScript[] = "/home/rarmijo/casa-pipeline-release-5.6.2-2.el7/bin/casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./HLTau_B6cont.calavg.tav300s";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./FREQ78.ms";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./co65.ms";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // ########### BEAM ##############
+//   char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+//   char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // // ########### BEAM ##############
+//   // char nombreArchivo[] = "./hd142_b9_model";
+//   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+//
+//   // char* comandoScriptMSaTXT = (char*) malloc(strlen(comandoCasaconScript)*strlen(nombreArchivo)*sizeof(char)+sizeof(char)*3);
+//   // strcpy(comandoScriptMSaTXT, comandoCasaconScript);
+//   // strcat(comandoScriptMSaTXT, " ");
+//   // strcat(comandoScriptMSaTXT, nombreArchivo);
+//   // system(comandoScriptMSaTXT);
+//   // free(comandoScriptMSaTXT);
+//
+//
+//   lectCantVisi(nombreArchivo, &cantVisi);
+//   float *u, *v, *w, *visi_parteImaginaria, *visi_parteReal;
+//   cudaMallocManaged(&u, cantVisi*sizeof(float));
+//   cudaMallocManaged(&v, cantVisi*sizeof(float));
+//   cudaMallocManaged(&w, cantVisi*sizeof(float));
+//   cudaMallocManaged(&visi_parteImaginaria, cantVisi*sizeof(float));
+//   cudaMallocManaged(&visi_parteReal, cantVisi*sizeof(float));
+//   lectDeTXTcreadoDesdeMS(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal);
+//   // lectDeTXTcreadoDesdeMSConLimite(nombreArchivo, u, v, w, visi_parteImaginaria, visi_parteReal, inicio, fin, cantVisi);
+//
+//   float* matrizDeUnos, *matrizDeUnosTamN, *matrizDeUnosNxN;
+//   cudaMallocManaged(&matrizDeUnos, cantVisi*N*sizeof(float));
+//   for(long i=0; i<(cantVisi*N); i++)
+//   {
+//     matrizDeUnos[i] = 1.0;
+//   }
+//   cudaMallocManaged(&matrizDeUnosTamN, N*sizeof(float));
+//   for(long i=0; i<N; i++)
+//   {
+//     matrizDeUnosTamN[i] = 1.0;
+//   }
+//   cudaMallocManaged(&matrizDeUnosNxN, N*N*sizeof(float));
+//   for(long i=0; i<N*N; i++)
+//   {
+//     matrizDeUnosNxN[i] = 1.0;
+//   }
+//
+//   // int cantParamEvaInfo = 23;
+//   // float limitesDeZonas[] = {0.001, 2.0, 3.0};
+//   // float cantPuntosPorZona[] = {10, 10};
+//   // int cantPtosLimites = 3;
+//   // float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+//   // float* paramEvaInfo;
+//   // cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
+//   // combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, 0);
+//   // FILE* archivito = fopen("/home/rarmijo/info_hd142_rect.txt", "w");
+//   // for(int i=0; i<cantParamEvaInfo; i++)
+//   // {
+//   //   float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, paramEvaInfo[i], matrizDeUnos, tamBloque, 0);
+//   //   float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, paramEvaInfo[i], matrizDeUnos, tamBloque, 0);
+//   //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, tamBloque, 0);
+//   //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+//   //   free(medidasDeInfo);
+//   //   cudaFree(MV);
+//   //   cudaFree(MU);
+//   //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo_pre[i], medidaSumaDeLaDiagonal);
+//   // }
+//   // cudaFree(paramEvaInfo_pre);
+//   // fclose(archivito);
+//   // exit(1);
+//
+//   // int cantParamEvaInfo = 203;
+//   // float limitesDeZonas[] = {0.001, 2.0, 3.0};
+//   // float cantPuntosPorZona[] = {150, 50};
+//   // int cantPtosLimites = 3;
+//   // float* paramEvaInfo = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+//   // FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_hermite.txt", "w");
+//   // int n = N-1;
+//   // float maxu = buscarMaximo(u, cantVisi);
+//   // float maxv = buscarMaximo(v, cantVisi);
+//   // float max_radius = maximoEntre2Numeros(maxu,maxv);
+//   // for(int i=0; i<cantParamEvaInfo; i++)
+//   // {
+//   //   float beta_u = paramEvaInfo[i]/max_radius;
+//   //   float K = beta_u * (sqrt(2*n+1)+1);
+//   //   float* x_samp = combinacionLinealMatrices_conretorno(K, u, cantVisi, 1, 0.0, u, tamBloque, 0);
+//   //   float* y_samp = combinacionLinealMatrices_conretorno(K, v, cantVisi, 1, 0.0, v, tamBloque, 0);
+//   //   float* MV = hermite(y_samp, cantVisi, n, tamBloque, 0);
+//   //   float* MU = hermite(x_samp, cantVisi, n, tamBloque, 0);
+//   //   cudaFree(x_samp);
+//   //   cudaFree(y_samp);
+//   //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, 1024, 0);
+//   //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+//   //   free(medidasDeInfo);
+//   //   cudaFree(MV);
+//   //   cudaFree(MU);
+//   //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo[i], medidaSumaDeLaDiagonal);
+//   // }
+//   // fclose(archivito);
+//   // exit(1);
+//
+//
+//   // int cantParamEvaInfo = 203;
+//   // float limitesDeZonas[] = {0.001, 2.0, 3.0};
+//   // float cantPuntosPorZona[] = {150, 50};
+//   // int cantPtosLimites = 3;
+//   // float* paramEvaInfo_pre = linspaceNoEquiespaciadoMitad(limitesDeZonas, cantPuntosPorZona, cantPtosLimites);
+//   // float* paramEvaInfo;
+//   // cudaMallocManaged(&paramEvaInfo, cantParamEvaInfo*sizeof(float));
+//   // combinacionLinealMatrices(delta_u, paramEvaInfo_pre, cantParamEvaInfo, 1, 0.0, paramEvaInfo, tamBloque, 0);
+//   // FILE* archivito = fopen("/home/rarmijo/Desktop/info_hd142_normal.txt", "w");
+//   // for(int i=0; i<cantParamEvaInfo; i++)
+//   // {
+//   //   float* MV = calcularMV_Normal(v, delta_v, cantVisi, N, paramEvaInfo[i], 1024, 0);
+//   //   float* MU = calcularMV_Normal(u, delta_u, cantVisi, N, paramEvaInfo[i], 1024, 0);
+//   //   float* medidasDeInfo = calInfoFisherDiag(MV, cantVisi, N, MU, w, 1024, 0);
+//   //   float medidaSumaDeLaDiagonal = medidasDeInfo[0];
+//   //   free(medidasDeInfo);
+//   //   cudaFree(MV);
+//   //   cudaFree(MU);
+//   //   fprintf(archivito, "%.12f %.12e\n", paramEvaInfo_pre[i], medidaSumaDeLaDiagonal);
+//   // }
+//   // fclose(archivito);
+//   // cudaFree(paramEvaInfo_pre);
+//   // exit(1);
+//
+//
+//   // float* resultado1, * resultado2;
+//   // cudaMallocManaged(&resultado1, cantVisi*N*sizeof(float));
+//   // cudaMallocManaged(&resultado2, cantVisi*N*sizeof(float));
+//   //
+//   // printf("...Comenzando calculo de MV...\n");
+//   // float* MV = calcularMV_Rect(v, delta_v, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
+//   // printf("Calculo de MV completado.\n");
+//   //
+//   // printf("...Comenzando calculo de MU...\n");
+//   // float* MU = calcularMV_Rect(u, delta_u, cantVisi, N, estrechezDeBorde, delta_u, matrizDeUnos);
+//   // printf("Calculo de MU completado.\n");
+//   //
+//   //
+//   // clock_t tiempoCalculo1;
+//   // tiempoCalculo1 = clock();
+//   // multMatrices(MV, cantVisi, N, MU, N, resultado1);
+//   // tiempoCalculo1 = clock() - tiempoCalculo1;
+//   // float tiempoTotalCalculo1 = ((float)tiempoCalculo1)/CLOCKS_PER_SEC;
+//   //
+//   // clock_t tiempoCalculo2;
+//   // tiempoCalculo2 = clock();
+//   // // multMatrices3(MV, cantVisi, N, MU, N, resultado2);
+//   // tiempoCalculo2 = clock() - tiempoCalculo2;
+//   // float tiempoTotalCalculo2 = ((float)tiempoCalculo2)/CLOCKS_PER_SEC;
+//   //
+//   // printf("La multiplicacion con cublas tomo %.12e segundos mientras que la dispersa tomo %.12e segundos.\n", tiempoTotalCalculo2, tiempoTotalCalculo1);
+//   //
+//   // exit(1);
+//
+//   float cotaEnergia = 0.99;
+//   // char nombreDirPrin[] = "probando";
+//   // char nombreDirPrin[] = "/disk2/tmp/probando";
+//   // char nombreDirPrin[] = "float_calCompresion_baseNormal_cota";
+//   // char nombreDirPrin[] = "experi_hd142_Normal_visi800";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_linspacevariable_Rect_visi350";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_HLTau_Band6_CalibratedData_linspacevariable_Rect_UnMillon";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi153";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Hermite_linspacevariable_visi153";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Normal_linspacevariable_visi400";
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Rect_linspacevariable_visi500";
+//   char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800";
+//   // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800_3";
+//   // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4";
+//   char nombreDirSec[] = "ite";
+//   char nombreDirTer[] = "compresiones";
+//   char nombreArchivoTiempo[] = "tiempo.txt";
+//   // int cantParamEvaInfo = 153;
+//   int cantParamEvaInfo = 1203;
+//   float inicioIntervalo = 0.001;
+//   float finIntervalo = 3.0;
+//   float tolGolden = 1E-12;
+//   int iterActual = 0;
+//
+//   // char nombreDirPrin[] = "/disk2/tmp/experi_hd142_Rect_reciclado_visi800";
+//   // char nombreDirSec[] = "ite";
+//   // char nombreDirTer[] = "compresiones";
+//   // char nombreArchivoTiempo[] = "tiempo.txt";
+//   // // char nombreArchivoConNombres[] = "nombredeprueba.txt";
+//   // char nombreArchivoConNombres[] = "datosAJuntar_Rect.txt";
+//   // char nombreArchivoCoefs_imag[] = "coefs_imag.txt";
+//   // char nombreArchivoCoefs_real[] = "coefs_real.txt";
+//   // int cantArchivos = 2;
+//   // int flag_multiThread = 1;
+//   // char nombreArchivoInfoCompre[] = "infoCompre.txt";
+//
+//   // clock_t t;
+//   // t = clock();
+//   double iStart = cpuSecond();
+//   // calculoDeInfoCompre_BaseHermite(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+//   // calculoDeInfoCompre_BaseNormal(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+//   calculoDeInfoCompre_BaseInvCuadra(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque);
+//   // calculoDeInfoCompre_BaseRect(nombreArchivo, maxIter, tolGrad, tolGolden, u, v, w, visi_parteImaginaria, visi_parteReal, delta_u, delta_v, matrizDeUnos, cantVisi, N, cotaEnergia, nombreDirPrin, nombreDirSec, nombreDirTer, cantParamEvaInfo, inicioIntervalo, finIntervalo, matrizDeUnosTamN, estrechezDeBorde, tamBloque, matrizDeUnosNxN);
+//   // reciclador_calculoDeInfoCompre_BaseNormal(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, cantVisi, N, matrizDeUnosTamN, tamBloque);
+//   // reciclador_calculoDeInfoCompre_BaseRect(nombreArchivoConNombres, nombreDirPrin, nombreDirSec, nombreDirTer, nombreArchivoCoefs_imag, nombreArchivoCoefs_real, cantArchivos, flag_multiThread, nombreArchivoInfoCompre, maxIter, u, v, w, delta_u, delta_v, matrizDeUnos, cantVisi, N, matrizDeUnosTamN, tamBloque, matrizDeUnosNxN, estrechezDeBorde);
+//   double time_taken = cpuSecond() - iStart;
+//   // t = clock() - t;
+//   // float time_taken = ((float)t)/CLOCKS_PER_SEC;
+//   char* nombreCompletoArchivoTiempo = (char*) malloc(sizeof(char)*(strlen(nombreArchivoTiempo)+strlen(nombreDirPrin))+sizeof(char)*3);
+//   strcpy(nombreCompletoArchivoTiempo, nombreDirPrin);
+//   strcat(nombreCompletoArchivoTiempo, "/");
+//   strcat(nombreCompletoArchivoTiempo, nombreArchivoTiempo);
+//   FILE* archivoTiempo = fopen(nombreCompletoArchivoTiempo, "w");
+//   double minutitos = time_taken/60;
+//   double horas = minutitos/60;
+//   printf("El tiempo de ejecucion fue %.12e segundos o %.12e minutos o %.12e horas.\n", time_taken, minutitos, horas);
+//   fprintf(archivoTiempo, "El tiempo de ejecucion fue %.12e segundos o %.12e minutos o %.12e horas.\n", time_taken, minutitos, horas);
+//   fclose(archivoTiempo);
+//   free(nombreCompletoArchivoTiempo);
+//
+//   cudaFree(u);
+//   cudaFree(v);
+//   cudaFree(w);
+//   cudaFree(visi_parteImaginaria);
+//   cudaFree(visi_parteReal);
+//   cudaFree(matrizDeUnos);
+//   cudaFree(matrizDeUnosTamN);
+// }
