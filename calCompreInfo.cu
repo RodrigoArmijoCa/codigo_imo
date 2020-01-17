@@ -3911,7 +3911,7 @@ double* minGradConjugado_MinCuadra_escritura_l1(double param_lambda, char* nombr
   // printf("%.12e\n", valorcito1);
   // exit(-1);
 
-  // double* ahora = linspace(-1e6, 1e6, 200);
+  // double* ahora = linspace(-1e30, 1e30, 200);
   // FILE* archivorandom = fopen("/home/rarmijo/zetas.txt", "w");
   // for(int j=0; j<200; j++)
   // {
@@ -3929,6 +3929,7 @@ double* minGradConjugado_MinCuadra_escritura_l1(double param_lambda, char* nombr
        printf("Error al crear o abrir el archivo para almacenar la minimizacion.\n");
        exit(0);
   }
+  // double* ahora = linspace(-1e30, 1e30, 200);
   while(maxIter > i && 2.0 * diferenciaDeCosto > tol * normalizacion)
   {
     // alpha = calAlpha(gradienteAnterior, N, N, pActual, MV, cantVisi, N, MU, N, w, matrizDeUnosTamN, &flag_NOESPOSIBLEMINIMIZAR, tamBloque, numGPU);
@@ -3943,19 +3944,46 @@ double* minGradConjugado_MinCuadra_escritura_l1(double param_lambda, char* nombr
     // // printf("El inicio es %.30f y el fin es %.30f\n", finIntervaloZ, inicioIntervaloZ);
     // alpha = (finIntervaloZ+inicioIntervaloZ)/2.0;
 
+    // char nombreBase[] = "/srv/nas01/rarmijo/resultados_temporales/zetas";
+    // char* numComoString = numAString(&i);
+    // sprintf(numComoString, "%d", i);
+    // char* nombreConIteracion = (char*) malloc(sizeof(char)*(strlen(nombreBase)+strlen(numComoString)+5));
+    // strcpy(nombreConIteracion, nombreBase);
+    // strcat(nombreConIteracion, numComoString);
+    // strcat(nombreConIteracion, ".txt");
+    // FILE* archivorandom = fopen(nombreConIteracion, "w");
+    // for(int j=0; j<200; j++)
+    // {
+    //   double valorcito = funcValorZ(ahora[j], cantVisi, N, MV, MC, MU, matrizDeUnosTamN, tamBloque, numGPU, w, pActual, param_lambda, residual);
+    //   // printf("%.32e\n", valorcito);
+    //   fprintf(archivorandom, "%.32e\n", valorcito);
+    // }
+    // fclose(archivorandom);
+    // free(numComoString);
+    // free(nombreConIteracion);
+
     if(flag_NOESPOSIBLEMINIMIZAR == 1)
     {
       printf("No fue posible minimizar\n");
       break;
     }
     combinacionLinealMatrices(alpha, pActual, N, N, 1.0, MC, tamBloque, numGPU);
-    for(int j=0; j<N*N; j++)
-    {
-      if(MC[j] < 1e-5)
-      {
-        MC[j] = 0.0;
-      }
-    }
+    // for(int j=0; j<N*N; j++)
+    // {
+    //   if(MC[j] < 1e-5)
+    //   {
+    //     MC[j] = 0.0;
+    //   }
+    // }
+
+    // for(int j=0; j<N*N; j++)
+    // {
+    //   if(MC[j] < 1e-12)
+    //   {
+    //     MC[j] = 0.0;
+    //   }
+    // }
+
     double* puntero_residualAnterior = residual;
     residual = calResidual(visibilidades, MV, cantVisi, N, MC, N, MU, matrizDeUnosTamN, tamBloque, numGPU);
     cudaFree(puntero_residualAnterior);
@@ -5496,17 +5524,17 @@ int main()
   // char nombreArchivo[] = "./co65.ms";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // ########### BEAM ##############
-  char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
-  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // // ########### BEAM ##############
+  // char nombreArchivo[] = "./hd142_b9cont_self_tav.ms";
+  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // // ########### BEAM ##############
   // char nombreArchivo[] = "/home/rarmijo/HLTau_Band6_CalibratedData/HLTau_B6cont.calavg";
   // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
-  // // ########### BEAM ##############
-  // char nombreArchivo[] = "./hd142_b9_model";
-  // char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
+  // ########### BEAM ##############
+  char nombreArchivo[] = "./hd142_b9_model";
+  char comandoCasaconScript[] = "casa -c ./deMSaTXT.py";
 
   // char* comandoScriptMSaTXT = (char*) malloc(strlen(comandoCasaconScript)*strlen(nombreArchivo)*sizeof(char)+sizeof(char)*3);
   // strcpy(comandoScriptMSaTXT, comandoCasaconScript);
@@ -5666,7 +5694,7 @@ int main()
   // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800";
   // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800_3";
   // char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_b9_model_Normal_linspacevariable_visi400y800_4";  char nombreDirPrin[] = "/srv/nas01/rarmijo/experi_hd142_InvCuadra_linspacevariable_visi400y800";
-  char nombreDirPrin[] = "/srv/nas01/rarmijo/experimento_l1";
+  char nombreDirPrin[] = "/srv/nas01/rarmijo/experimento_l1_hd142_b9_model_descartandonada";
   char nombreDirSec[] = "ite";
   char nombreDirTer[] = "compresiones";
   char nombreArchivoTiempo[] = "tiempo.txt";
