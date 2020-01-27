@@ -6678,14 +6678,6 @@ int main()
 
   // for i in {680..693}; do rm -r /srv/nas01/rarmijo/experi_hd142_b9_model_Rect_linspacevariable_visi400y800/ite$i; done
 
-  // for i in {0..1202}; do mkdir ./ite$i ; done
-  // for i in {0..1202}; do sshpass -p Rorozero4545 scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_Rect/ite$i/coefs_imag.txt /disk1/rarmijo/experi_hd142_b9_model_Rect/ite$i/ ; done
-  // for i in {0..1202}; do sshpass -p Rorozero4545 scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_Rect/ite$i/coefs_real.txt /disk1/rarmijo/experi_hd142_b9_model_Rect/ite$i/ ; done
-
-  // for i in {0..999}; do mkdir ./ite$i ; done
-  // for i in {0..999}; do sshpass -p Rorozero4545 scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_Normal_centrosArreglados/ite$i/coefs_imag.txt /var/external_rarmijo/experi_hd142_b9_model_Normal_centrosArreglados/ite$i/ ; done
-  // for i in {0..999}; do sshpass -p Rorozero4545 scp rarmijo@158.170.35.147:/srv/nas01/rarmijo/resultados/experi_hd142_b9_model_Normal_centrosArreglados/ite$i/coefs_real.txt /var/external_rarmijo/experi_hd142_b9_model_Normal_centrosArreglados/ite$i/ ; done
-
   long cantVisi = 15034;
   long inicio = 0;
   long fin = 15034;
